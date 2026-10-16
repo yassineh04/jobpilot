@@ -1,0 +1,21 @@
+# Secrets
+.env
+backend/.env
+!**/.env.example
+
+# Python
+backend/venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+backend/test.db
+*.db
+
+# Node
+node_modules/
+frontend/.next/
+e2e/shots/
+
+# Système
+.DS_Store
+Thumbs.db

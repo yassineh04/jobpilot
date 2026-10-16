@@ -1,0 +1,71 @@
+# JobPilot runs on its own ports so it can live next to other local projects:
+#   app http://localhost:4300 · API http://localhost:8300 · PostgreSQL localhost:5543
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tracker
+      POSTGRES_PASSWORD: tracker
+      POSTGRES_DB: tracker_db
+    ports:
+      - "5543:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tracker -d tracker_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    env_file: ./backend/.env
+    environment:
+      FRONTEND_URL: http://localhost:4300
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8300:8000"
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Inlined into the browser bundle at build time
+        NEXT_PUBLIC_API_URL: http://localhost:8300
+    depends_on:
+      - backend
+    ports:
+      - "4300:3000"
+
+  # Free local AI (no account, no key, data stays on this machine). Enabled by COMPOSE_PROFILES
+  # in the root .env; the model is downloaded once by ollama-init. Use AI_PROVIDER=ollama.
+  ollama:
+    image: ollama/ollama:0.40.5
+    profiles: ["local-ai"]
+    environment:
+      # The default context window silently truncates long prompts (job postings, your data)
+      OLLAMA_CONTEXT_LENGTH: "8192"
+      OLLAMA_KEEP_ALIVE: "30m"
+    volumes:
+      - ollama:/root/.ollama
+    ports:
+      - "11534:11434"
+    restart: unless-stopped
+
+  ollama-init:
+    image: ollama/ollama:0.40.5
+    profiles: ["local-ai"]
+    depends_on:
+      - ollama
+    environment:
+      OLLAMA_HOST: ollama:11434
+    entrypoint: ["sh", "-c", "sleep 3 && ollama pull qwen2.5:3b"]
+    restart: "no"
+
+volumes:
+  pgdata:
+  ollama:

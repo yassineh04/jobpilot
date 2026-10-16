@@ -1,0 +1,12 @@
+{
+  "name": "jobpilot-e2e",
+  "private": true,
+  "scripts": {
+    "test": "node scenario.js",
+    "a11y": "node a11y.js"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.10.2",
+    "playwright": "1.49.1"
+  }
+}
