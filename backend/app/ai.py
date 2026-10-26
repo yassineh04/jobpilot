@@ -20,7 +20,9 @@ T = TypeVar("T", bound=BaseModel)
 
 PRESETS = {
     "groq": ("https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
-    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash"),
+    # A "latest" alias keeps working when Google retires dated names. Flash-Lite: ~1 s per step on the
+    # free tier, where the newest full Flash model can queue for a minute
+    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-flash-lite-latest"),
     "ollama": ("http://ollama:11434/v1", "qwen2.5:3b"),
     "openai_compatible": ("", ""),
 }
@@ -32,6 +34,10 @@ class AIUnavailable(Exception):
     """AI is not configured or failed. Callers fall back or show the message to the user."""
 
 
+class ToolsUnsupported(Exception):
+    """The provider or model does not accept OpenAI-style tool calling."""
+
+
 @dataclass(frozen=True)
 class AIConfig:
     provider: str
@@ -41,16 +47,31 @@ class AIConfig:
     timeout: float
 
 
+_warned: set[str] = set()
+
+
+def _warn_once(message: str) -> None:
+    """A misconfigured provider silently disables AI, so say why in the logs (once)."""
+    if message not in _warned:
+        _warned.add(message)
+        logger.warning(message)
+
+
 def ai_config() -> Optional[AIConfig]:
     provider = settings.AI_PROVIDER.strip().lower()
+    if provider in ("", "none", "off"):
+        return None
     if provider not in PRESETS:
+        _warn_once(f"AI disabled: unknown AI_PROVIDER={provider!r}. Use one of: {', '.join(PRESETS)}.")
         return None
     base_url, model = PRESETS[provider]
     base_url = (settings.AI_BASE_URL or base_url).rstrip("/")
     model = settings.AI_MODEL or model
     if not base_url or not model:
+        _warn_once(f"AI disabled: AI_PROVIDER={provider} needs AI_BASE_URL and AI_MODEL.")
         return None
     if provider != "ollama" and not settings.AI_API_KEY:
+        _warn_once(f"AI disabled: AI_PROVIDER={provider} needs AI_API_KEY.")
         return None
     return AIConfig(provider, base_url, model, settings.AI_API_KEY, settings.AI_TIMEOUT_SECONDS)
 
@@ -92,24 +113,16 @@ class LLM:
         self._client = httpx.Client(base_url=config.base_url, headers=headers,
                                     timeout=config.timeout, transport=transport)
 
-    def chat(self, messages: list[dict], json_mode: bool = True, max_tokens: int = 1500,
-             temperature: float = 0.2) -> str:
-        body = {"model": self.config.model, "messages": messages,
-                "temperature": temperature, "max_tokens": max_tokens}
-        if json_mode:
-            body["response_format"] = {"type": "json_object"}
+    def _post(self, body: dict) -> httpx.Response:
         try:
-            response = self._client.post("/chat/completions", json=body)
-            if response.status_code == 400 and json_mode:
-                # Some providers/models reject response_format: retry with prompt-only JSON
-                body.pop("response_format")
-                response = self._client.post("/chat/completions", json=body)
+            return self._client.post("/chat/completions", json=body)
         except httpx.TimeoutException as exc:
             raise AIUnavailable("The AI took too long to answer. Try again.") from exc
         except httpx.HTTPError as exc:
             logger.warning("AI request failed: %s", type(exc).__name__)
             raise AIUnavailable("The AI service could not be reached.") from exc
 
+    def _message(self, response: httpx.Response) -> dict:
         if response.status_code == 429:
             raise AIUnavailable("The free AI quota is used up for now. Try again in a minute.")
         if response.status_code in (401, 403):
@@ -121,9 +134,37 @@ class LLM:
             logger.warning("AI provider error %s: %s", response.status_code, response.text[:300])
             raise AIUnavailable("The AI service returned an error.")
         try:
-            return response.json()["choices"][0]["message"]["content"] or ""
+            return response.json()["choices"][0]["message"]
         except (KeyError, IndexError, ValueError) as exc:
             raise AIUnavailable("The AI service returned an unexpected response.") from exc
+
+    def chat_with_tools(self, messages: list[dict], tools: list[dict], tool_choice: str = "auto",
+                        max_tokens: int = 900, temperature: float = 0.1) -> dict:
+        """One step of an agent loop: returns the assistant message (content and/or tool_calls).
+        Raises ToolsUnsupported when the provider or model rejects tool calling."""
+        body = {"model": self.config.model, "messages": messages, "tools": tools, "tool_choice": tool_choice,
+                "temperature": temperature, "max_tokens": max_tokens}
+        response = self._post(body)
+        if response.status_code == 400:
+            # Groq answers 400 "tool_use_failed" when the model writes a malformed call: retry once
+            response = self._post(body)
+            if response.status_code == 400:
+                logger.info("Tool calling rejected by the provider: %s", response.text[:300])
+                raise ToolsUnsupported()
+        return self._message(response)
+
+    def chat(self, messages: list[dict], json_mode: bool = True, max_tokens: int = 1500,
+             temperature: float = 0.2) -> str:
+        body = {"model": self.config.model, "messages": messages,
+                "temperature": temperature, "max_tokens": max_tokens}
+        if json_mode:
+            body["response_format"] = {"type": "json_object"}
+        response = self._post(body)
+        if response.status_code == 400 and json_mode:
+            # Some providers/models reject response_format: retry with prompt-only JSON
+            body.pop("response_format")
+            response = self._post(body)
+        return self._message(response).get("content") or ""
 
     def complete_json(self, system: str, user: str, model_cls: type[T], max_tokens: int = 1500) -> T:
         """Asks for JSON, validates it against `model_cls`; one repair attempt on invalid output."""

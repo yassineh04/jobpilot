@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, Eye } from "lucide-react";
 import { api } from "@/lib/api";
 import type { AiDebrief, FactClaim } from "@/lib/types";
 import { Card, CardHeader, ErrorBanner } from "@/components/ui/Primitives";
@@ -74,7 +74,7 @@ export function DebriefCard() {
             {debrief.observations.length > 0 && (
               <ul className="space-y-2.5">
                 {debrief.observations.map((o) => (
-                  <Claim key={o.text} claim={o} facts={debrief.facts} icon={<Sparkles className="size-3.5 text-stone-500" />} />
+                  <Claim key={o.text} claim={o} facts={debrief.facts} icon={<Eye className="size-3.5 text-stone-500" />} />
                 ))}
               </ul>
             )}

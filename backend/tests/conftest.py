@@ -72,6 +72,8 @@ class FakeProvider:
             return httpx.Response(answer, json={"error": "scripted"})
         if isinstance(answer, Exception):
             raise answer
+        if isinstance(answer, dict) and "__message__" in answer:  # a full message, e.g. with tool_calls
+            return httpx.Response(200, json={"choices": [{"message": answer["__message__"]}]})
         content = answer if isinstance(answer, str) else json.dumps(answer)
         return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
 

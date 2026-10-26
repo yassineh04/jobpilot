@@ -12,14 +12,14 @@ its sample size, and every AI statement is checked against its source before you
 | Area | What it does |
 | --- | --- |
 | Overview | Active applications, interviews, follow-ups due, deadlines, recent activity, AI weekly debrief |
-| Applications | Kanban board (drag & drop) and list, filters, tags, deadlines, resume used |
-| Application page | Brief (AI), fit score, interviews, history, linked contacts and tasks, message drafts (AI) |
+| Applications | Kanban board (drag & drop) and list, filters, tags, deadlines, resume used, bulk moves with undo. New applications fill themselves from a posting link (Greenhouse, Lever, Ashby, schema.org JobPosting pages) or pasted text |
+| Application page | Brief (AI), fit score, CV keyword check, interviews (add to Google Calendar, Outlook or .ics), history, linked contacts and tasks, message and cover letter drafts (AI) |
 | Agenda | Month calendar with interviews, task due dates and application deadlines, plus the task list |
 | Interview prep | AI practice with feedback, question bank, weakness map |
-| Profile & resumes | Experience, education, projects, skills backed by evidence, languages, preferences, resume versions |
+| Profile & resumes | Import from a CV (PDF): experience, education, projects, skills and languages, reviewed before saving. Skills backed by evidence, preferences, resume versions with their PDF |
 | Contacts | Recruiters and referrals, last interaction, next follow-up, linked applications |
 | Analytics | Pipeline (activity, funnel, bottleneck), What works (sources, timing, resumes, rejections), Market |
-| Ask JobPilot | Questions about your own data, answered with the exact records used |
+| JobPilot agent | Opens on any page (`J`). Answers from your records and prepares changes (tasks, statuses, interviews, notes, follow-ups) that you confirm |
 | Search | Ctrl/Cmd + K across applications, companies, contacts, questions, interviews, profile and tasks |
 
 ## AI that shows its sources
@@ -28,15 +28,25 @@ The AI is free (no paid API) and optional. What makes it different: **the model 
 
 | Feature | What the AI does | What the code verifies |
 | --- | --- | --- |
-| Posting extraction | Reads a pasted posting into structured fields | Skills must appear in the text; empty fields are filled by the rule-based parser |
+| Posting extraction | Reads a pasted posting, or one fetched from its link, into structured fields | Skills must appear in the text; empty fields are filled by the rule-based parser; fields the job board publishes itself win |
+| CV import | Structures the text of an uploaded PDF | Roles are kept only if their company or title is in the PDF text, bullets only if their words are, skills only if they are mentioned. You pick what is saved; bullets that name a skill become its evidence |
 | Application brief | Summary, employer priorities, questions to ask, things to clarify | Every priority and watch-out quotes the posting word for word, or it is removed. Your fit comes from the deterministic engine, not the AI |
 | Interview practice | Likely questions for this posting, weighted toward your weakest topics | Topics must be yours; quotes must exist in the posting |
 | Answer coach | STAR structure check, strengths, improvements | Suggested examples must be experiences you recorded, and relevant to the question |
-| Message drafts | Thank-you, follow-up and networking messages | Written only from your application facts; unknowns become [placeholders] |
+| Message drafts | Thank-you, follow-up and networking messages, cover letters | Written only from your application facts and profile evidence; unknowns become [placeholders] |
 | Weekly debrief | What moved, what's waiting, 3 focus actions | Every line must cite facts the server computed from your data |
-| Ask JobPilot | Writes the answer | The server picks and runs the read-only lookups (no SQL from the model); the exact records are shown under the answer, and a count that disagrees with them is replaced by the real one |
+| Agent | Chooses which of your records to look up, then proposes changes | Tools are server functions bound to your account (no SQL from the model). Changes are only *proposed*: the server checks they target your own records, you confirm each card, and it then runs through the same code as the regular API. The records used are listed under the answer |
 
 The UI always says how many unverifiable statements were removed.
+
+### The agent runs on the server
+
+Nobody who uses JobPilot installs anything: the browser talks to the API, and the API calls the model
+provider (Groq or Gemini in the cloud). Deployed, the agent works on any computer or phone, like ChatGPT.
+The API key stays in the server's environment variables, never in the browser or the repository.
+
+The agent uses OpenAI-style tool calling (`backend/app/agent.py`). With a model that cannot call tools
+(for example a small local one), it falls back to the read-only assistant.
 
 ### Free providers
 
@@ -46,7 +56,7 @@ Set in `backend/.env`, then restart the API:
 | --- | --- | --- |
 | `ollama` | Free, no account. Runs in Docker (`COMPOSE_PROFILES=local-ai`, default) | Private: data stays on your computer. `qwen2.5:3b` by default; 30-60 s per request on a laptop CPU. Use `AI_MODEL=qwen2.5:7b` with 16 GB+ for better answers |
 | `groq` | Free API key from console.groq.com (no card) + `AI_API_KEY` | Fast (1-3 s) and the best quality of the free options (`llama-3.3-70b-versatile`) |
-| `gemini` | Free API key from aistudio.google.com + `AI_API_KEY` | `gemini-2.5-flash` |
+| `gemini` | Free API key from aistudio.google.com + `AI_API_KEY` | `gemini-flash-lite-latest` (about 1 s per step; set `AI_MODEL=gemini-flash-latest` for the bigger model, slower on the free tier). Better tool calling and higher per-minute volume than Groq; on the free tier Google may use the data to improve its products |
 | `none` | | AI features hidden; everything else works |
 
 Any OpenAI-compatible endpoint also works (`AI_PROVIDER=openai_compatible`, `AI_BASE_URL`, `AI_MODEL`).
@@ -69,12 +79,15 @@ backend/app/
   matching.py        compatibility engine (deterministic)
   analytics.py       funnel, rejection, timing, breakdown and resume statistics
   job_parser.py      rule-based posting parser   skills_catalog.py   skill dictionary
+  job_import.py      posting import from a link (job board APIs, JSON-LD, page text; public addresses only)
+  cv_import.py       PDF text extraction (pypdf), CV structuring and verification, import
   ai.py              provider-agnostic LLM client (JSON mode, validation, one repair retry)
   ai_features.py     brief, practice, coach, drafts, debrief      ai_schemas.py  their shapes
   grounding.py       citation checks (quotes, ids, relevance)
-  assistant.py       deterministic retrieval + answer
+  assistant.py       deterministic retrieval + answer (read-only fallback)
+  agent.py           agent loop: read tools, proposed actions, confirmation
   seed.py            demo accounts
-backend/alembic/     migrations 0000 -> 0007
+backend/alembic/     migrations 0000 -> 0008
 frontend/            app/(app) pages, components/ui design system, components/ai, lib (API client, hooks)
 e2e/                 Playwright scenario + axe-core accessibility audit
 ```

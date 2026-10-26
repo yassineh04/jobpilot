@@ -18,12 +18,19 @@ export const STATUS_META: Record<Status, { label: string; dot: string; tone: str
   FINAL_INTERVIEW: { label: "Final interview", dot: "bg-orange-500", tone: "bg-orange-50 text-orange-800", group: "In progress" },
   OFFER: { label: "Offer", dot: "bg-accent-500", tone: "bg-accent-50 text-accent-800", group: "Closed" },
   REJECTED: { label: "Rejected", dot: "bg-rose-500", tone: "bg-rose-50 text-rose-800", group: "Closed" },
-  WITHDRAWN: { label: "Withdrawn", dot: "bg-stone-300", tone: "bg-stone-100 text-stone-500", group: "Closed" },
+  WITHDRAWN: { label: "Withdrawn", dot: "bg-stone-300", tone: "bg-stone-100 text-stone-600", group: "Closed" },
 };
 
 export const WORK_MODE_LABELS: Record<WorkMode, string> = {
   REMOTE: "Remote", HYBRID: "Hybrid", ON_SITE: "On-site",
 };
+
+/** "Montreal, QC · Hybrid". The work mode is left out when the location already says it ("Remote"). */
+export function placeLabel(location?: string | null, workMode?: WorkMode | null) {
+  const mode = workMode ? WORK_MODE_LABELS[workMode] : null;
+  const repeats = !!location && !!mode && location.toLowerCase().includes(mode.toLowerCase());
+  return [location, repeats ? null : mode].filter(Boolean).join(" · ");
+}
 
 export const EMPLOYMENT_LABELS: Record<EmploymentType, string> = {
   FULL_TIME: "Full-time", PART_TIME: "Part-time", CONTRACT: "Contract",

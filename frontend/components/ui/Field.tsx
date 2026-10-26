@@ -32,7 +32,7 @@ export function Field({ label, hint, error, optional, className, children }: Fie
       )}
       {children(id, describedBy)}
       {error ? (
-        <p id={`${id}-error`} className="text-xs text-rose-600">{error}</p>
+        <p id={`${id}-error`} className="text-xs text-rose-700">{error}</p>
       ) : hint ? (
         <p id={`${id}-hint`} className="text-xs text-stone-500">{hint}</p>
       ) : null}

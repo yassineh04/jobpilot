@@ -2,15 +2,17 @@
 import { Suspense, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Briefcase, Columns3, List, MapPin, Plus, Search, X } from "lucide-react";
+import { Briefcase, Columns3, List, MapPin, Plus, Search, Trash2, X } from "lucide-react";
 import { api } from "@/lib/api";
-import { STATUS_META, STATUSES, WORK_MODE_LABELS, enumOptions } from "@/lib/constants";
-import { cn, formatSalary, formatShortDate, relativeTime } from "@/lib/format";
+import { STATUS_META, STATUSES, WORK_MODE_LABELS, enumOptions, placeLabel } from "@/lib/constants";
+import { cn, formatSalary, formatShortDate, pluralize, relativeTime } from "@/lib/format";
 import { useAsync, useDebounced } from "@/lib/use-async";
 import type { Application, Status } from "@/lib/types";
 import { ApplicationForm } from "@/components/applications/ApplicationForm";
 import { Button } from "@/components/ui/Button";
+import { CompanyAvatar } from "@/components/ui/CompanyAvatar";
 import { controlClass } from "@/components/ui/Field";
+import { ConfirmDialog } from "@/components/ui/Modal";
 import {
   Badge, Card, EmptyState, ErrorBanner, PageHeader, SegmentedControl, Skeleton, StatusDot,
 } from "@/components/ui/Primitives";
@@ -18,18 +20,33 @@ import { useToast } from "@/components/ui/Toast";
 
 type View = "board" | "list";
 type SortKey = "updated" | "applied" | "company";
+const VIEW_KEY = "jp-applications-view";
+
+function storedView(): View | null {
+  try {
+    const v = localStorage.getItem(VIEW_KEY);
+    return v === "board" || v === "list" ? v : null;
+  } catch {
+    return null;
+  }
+}
 
 function AppCard({ app, onDragStart }: { app: Application; onDragStart: (e: React.DragEvent) => void }) {
   const salary = formatSalary(app.salary_min, app.salary_max, app.currency);
   return (
     <Link href={`/applications/${app.id}`} draggable onDragStart={onDragStart}
           className="block rounded-md border border-stone-200 bg-white p-3 transition-shadow hover:border-stone-300 hover:shadow-[0_1px_3px_rgb(0_0_0/0.06)] active:cursor-grabbing">
-      <p className="text-[13px] font-medium leading-snug text-stone-900">{app.position_title}</p>
-      <p className="mt-0.5 truncate text-xs text-stone-500">{app.company_name}</p>
+      <div className="flex items-start gap-2.5">
+        <CompanyAvatar name={app.company_name} size="sm" className="mt-px" />
+        <div className="min-w-0">
+          <p className="text-[13px] font-medium leading-snug text-stone-900">{app.position_title}</p>
+          <p className="mt-0.5 truncate text-xs text-stone-500">{app.company_name}</p>
+        </div>
+      </div>
       {(app.location || app.work_mode) && (
         <p className="mt-2 flex items-center gap-1 truncate text-xs text-stone-500">
           <MapPin className="size-3 shrink-0" />
-          {[app.location, app.work_mode && WORK_MODE_LABELS[app.work_mode]].filter(Boolean).join(" · ")}
+          {placeLabel(app.location, app.work_mode)}
         </p>
       )}
       {salary && <p className="mt-1 text-xs tabular-nums text-stone-500">{salary}</p>}
@@ -93,8 +110,13 @@ function Board({ apps, onMove }: { apps: Application[]; onMove: (app: Applicatio
   );
 }
 
-function ListView({ apps, onStatusChange }: { apps: Application[]; onStatusChange: (app: Application, status: Status) => void }) {
+function ListView({ apps, onStatusChange, selected, onSelect }: {
+  apps: Application[]; onStatusChange: (app: Application, status: Status) => void;
+  selected: Set<string>; onSelect: (ids: string[], on: boolean) => void;
+}) {
   const [sort, setSort] = useState<SortKey>("updated");
+  const allSelected = apps.length > 0 && apps.every((a) => selected.has(a.id));
+  const someSelected = !allSelected && apps.some((a) => selected.has(a.id));
   const sorted = useMemo(() => [...apps].sort((a, b) => {
     if (sort === "company") return a.company_name.localeCompare(b.company_name);
     if (sort === "applied") return (b.applied_date ?? "").localeCompare(a.applied_date ?? "");
@@ -103,7 +125,7 @@ function ListView({ apps, onStatusChange }: { apps: Application[]; onStatusChang
 
   const th = (key: SortKey, label: string, className = "") => (
     <th className={cn("px-3 py-2 font-medium", className)}>
-      <button onClick={() => setSort(key)} className={cn("hover:text-stone-900", sort === key && "text-stone-900")}>
+      <button type="button" onClick={() => setSort(key)} className={cn("hover:text-stone-900", sort === key && "text-stone-900")}>
         {label}{sort === key && " ↓"}
       </button>
     </th>
@@ -114,7 +136,13 @@ function ListView({ apps, onStatusChange }: { apps: Application[]; onStatusChang
       <table className="w-full min-w-[760px] text-[13px]">
         <thead className="border-b border-stone-200 bg-stone-50/70 text-left text-xs text-stone-500">
           <tr>
-            {th("company", "Role", "pl-4")}
+            <th className="w-10 py-2 pl-4">
+              <input type="checkbox" aria-label="Select all applications" checked={allSelected}
+                     ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                     onChange={(e) => onSelect(apps.map((a) => a.id), e.target.checked)}
+                     className="size-3.5 rounded border-stone-300 accent-[var(--color-accent-600)]" />
+            </th>
+            {th("company", "Role", "pl-1")}
             <th className="px-3 py-2 font-medium">Status</th>
             <th className="px-3 py-2 font-medium">Location</th>
             <th className="px-3 py-2 font-medium">Salary</th>
@@ -124,12 +152,22 @@ function ListView({ apps, onStatusChange }: { apps: Application[]; onStatusChang
         </thead>
         <tbody className="divide-y divide-stone-100">
           {sorted.map((app) => (
-            <tr key={app.id} className="group hover:bg-stone-50/70">
-              <td className="py-2.5 pl-4 pr-3">
-                <Link href={`/applications/${app.id}`} className="font-medium text-stone-900 group-hover:underline underline-offset-2">
-                  {app.position_title}
-                </Link>
-                <p className="text-xs text-stone-500">{app.company_name}</p>
+            <tr key={app.id} className={cn("group", selected.has(app.id) ? "bg-accent-50/60" : "hover:bg-stone-50/70")}>
+              <td className="py-2.5 pl-4">
+                <input type="checkbox" aria-label={`Select ${app.position_title} at ${app.company_name}`}
+                       checked={selected.has(app.id)} onChange={(e) => onSelect([app.id], e.target.checked)}
+                       className="size-3.5 rounded border-stone-300 accent-[var(--color-accent-600)]" />
+              </td>
+              <td className="py-2.5 pl-1 pr-3">
+                <div className="flex items-center gap-2.5">
+                  <CompanyAvatar name={app.company_name} />
+                  <div className="min-w-0">
+                    <Link href={`/applications/${app.id}`} className="font-medium text-stone-900 group-hover:underline underline-offset-2">
+                      {app.position_title}
+                    </Link>
+                    <p className="text-xs text-stone-500">{app.company_name}</p>
+                  </div>
+                </div>
               </td>
               <td className="px-3">
                 <select value={app.status} aria-label={`Status of ${app.position_title}`}
@@ -139,8 +177,7 @@ function ListView({ apps, onStatusChange }: { apps: Application[]; onStatusChang
                 </select>
               </td>
               <td className="px-3 text-stone-600">
-                {app.location ?? "—"}
-                {app.work_mode && <span className="text-stone-500"> · {WORK_MODE_LABELS[app.work_mode]}</span>}
+                {placeLabel(app.location, app.work_mode) || "—"}
               </td>
               <td className="px-3 tabular-nums text-stone-600">{formatSalary(app.salary_min, app.salary_max, app.currency) ?? "—"}</td>
               <td className="px-3 tabular-nums text-stone-600">{formatShortDate(app.applied_date)}</td>
@@ -153,11 +190,46 @@ function ListView({ apps, onStatusChange }: { apps: Application[]; onStatusChang
   );
 }
 
+function BulkBar({ count, onMove, onDelete, onClear, busy }: {
+  count: number; onMove: (status: Status) => void; onDelete: () => void; onClear: () => void; busy: boolean;
+}) {
+  return (
+    <div role="region" aria-label="Bulk actions"
+         className="fixed inset-x-0 bottom-5 z-30 flex justify-center px-4 lg:pl-60 animate-rise-in">
+      <div className="flex items-center gap-1.5 rounded-lg bg-stone-900 py-1.5 pl-3.5 pr-1.5 text-[13px] text-stone-50 shadow-pop">
+        <span className="mr-1.5 font-medium tabular-nums">{count} selected</span>
+        <select value="" disabled={busy} aria-label="Move selected to status"
+                onChange={(e) => { if (e.target.value) onMove(e.target.value as Status); }}
+                className="h-7 rounded-md border-0 bg-white/10 py-0 pl-2 pr-7 text-[13px] text-stone-50 focus:ring-2 focus:ring-white/30 [&>option]:text-stone-900">
+          <option value="">Move to…</option>
+          {STATUSES.map((st) => <option key={st} value={st}>{STATUS_META[st].label}</option>)}
+        </select>
+        <button type="button" onClick={onDelete} disabled={busy}
+                className="flex h-7 items-center gap-1.5 rounded-md px-2 text-stone-50 transition-colors hover:bg-white/10 disabled:opacity-60">
+          <Trash2 className="size-3.5" />Delete
+        </button>
+        <span className="mx-0.5 h-4 w-px bg-white/20" />
+        <button type="button" onClick={onClear} aria-label="Clear selection"
+                className="flex size-7 items-center justify-center rounded-md transition-colors hover:bg-white/10">
+          <X className="size-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ApplicationsInner() {
   const router = useRouter();
   const params = useSearchParams();
   const toast = useToast();
-  const [view, setView] = useState<View>(params.get("status") ? "list" : "board");
+  // The URL wins, then the view remembered on this device. This subtree renders on the client only
+  // (useSearchParams inside Suspense), so reading storage during the first render is safe.
+  const [view, setViewState] = useState<View>(() =>
+    params.get("status") || params.get("view") === "list" ? "list"
+      : params.get("view") === "board" ? "board" : storedView() ?? "board");
+  const [checked, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [search, setSearch] = useState(params.get("search") ?? "");
   const [status, setStatus] = useState(params.get("status") ?? "");
   const [workMode, setWorkMode] = useState("");
@@ -180,6 +252,61 @@ function ApplicationsInner() {
 
   const filtersActive = !!(search || status || workMode || location || resumeId);
 
+  const setView = (v: View) => {
+    setViewState(v);
+    setSelected(new Set());
+    try { localStorage.setItem(VIEW_KEY, v); } catch { /* storage unavailable */ }
+  };
+
+  // Only rows still visible after filtering count as selected
+  const selected = useMemo(
+    () => new Set((apps ?? []).filter((a) => checked.has(a.id)).map((a) => a.id)), [apps, checked]);
+
+  const select = (ids: string[], on: boolean) => setSelected((sel) => {
+    const next = new Set(sel);
+    for (const id of ids) {
+      if (on) next.add(id);
+      else next.delete(id);
+    }
+    return next;
+  });
+
+  const restore = async (before: Application[]) => {
+    const results = await Promise.allSettled(before.map((a) =>
+      api.updateApplication(a.id, { status: a.status, applied_date: a.applied_date ?? null })));
+    const restored = new Map(results.flatMap((r) => (r.status === "fulfilled" ? [[r.value.id, r.value] as const] : [])));
+    setApps((list) => list?.map((a) => restored.get(a.id) ?? a) ?? null);
+    if (restored.size < before.length) toast("Some changes could not be undone.", "error");
+  };
+
+  const bulkMove = async (next: Status) => {
+    const ids = [...selected];
+    const before = (apps ?? []).filter((a) => selected.has(a.id));
+    setBulkBusy(true);
+    const results = await Promise.allSettled(ids.map((id) => api.updateApplication(id, { status: next })));
+    setBulkBusy(false);
+    const failed = results.filter((r) => r.status === "rejected").length;
+    const updated = new Map(results.flatMap((r) => (r.status === "fulfilled" ? [[r.value.id, r.value] as const] : [])));
+    setApps((list) => list?.map((a) => updated.get(a.id) ?? a) ?? null);
+    setSelected(new Set());
+    if (failed) toast(`${failed} of ${ids.length} could not be moved.`, "error");
+    else toast(`Moved ${pluralize(ids.length, "application")} to ${STATUS_META[next].label}`, "success",
+               { label: "Undo", onClick: () => restore(before) });
+  };
+
+  const bulkDelete = async () => {
+    const ids = [...selected];
+    setBulkBusy(true);
+    const results = await Promise.allSettled(ids.map((id) => api.deleteApplication(id)));
+    setBulkBusy(false);
+    setConfirmBulkDelete(false);
+    const deleted = new Set(ids.filter((_, i) => results[i].status === "fulfilled"));
+    setApps((list) => list?.filter((a) => !deleted.has(a.id)) ?? null);
+    setSelected(new Set());
+    if (deleted.size < ids.length) toast(`${ids.length - deleted.size} of ${ids.length} could not be deleted.`, "error");
+    else toast(`Deleted ${pluralize(ids.length, "application")}`);
+  };
+
   const move = async (app: Application, next: Status) => {
     if (next === "REJECTED") {
       setRejectTarget({ ...app, status: next });
@@ -190,7 +317,7 @@ function ApplicationsInner() {
     try {
       const updated = await api.updateApplication(app.id, { status: next });
       setApps((list) => list?.map((a) => (a.id === app.id ? updated : a)) ?? null);
-      toast(`Moved to ${STATUS_META[next].label}`);
+      toast(`Moved to ${STATUS_META[next].label}`, "success", { label: "Undo", onClick: () => restore([app]) });
     } catch (err) {
       setApps(previous);
       toast(err instanceof Error ? err.message : "Could not update the status.", "error");
@@ -258,7 +385,17 @@ function ApplicationsInner() {
         <Card><EmptyState title="Nothing matches these filters">Try removing a filter or searching for something else.</EmptyState></Card>
       ) : apps && (view === "board"
         ? <Board apps={apps} onMove={move} />
-        : <ListView apps={apps} onStatusChange={move} />)}
+        : <ListView apps={apps} onStatusChange={move} selected={selected} onSelect={select} />)}
+
+      {view === "list" && selected.size > 0 && (
+        <BulkBar count={selected.size} busy={bulkBusy} onMove={bulkMove}
+                 onDelete={() => setConfirmBulkDelete(true)} onClear={() => setSelected(new Set())} />
+      )}
+      {confirmBulkDelete && (
+        <ConfirmDialog title={`Delete ${pluralize(selected.size, "application")}?`} loading={bulkBusy}
+                       message="Their interviews, history and notes are deleted too. This cannot be undone."
+                       onConfirm={bulkDelete} onCancel={() => setConfirmBulkDelete(false)} />
+      )}
 
       {showForm && (
         <ApplicationForm onClose={closeForm}

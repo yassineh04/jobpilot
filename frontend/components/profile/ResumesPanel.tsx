@@ -1,9 +1,9 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
-import { FileText, Pencil, Plus, Trash2 } from "lucide-react";
+import { ExternalLink, FileText, FileUp, Paperclip, Pencil, Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
-import { formatDate } from "@/lib/format";
+import { formatBytes, formatDate } from "@/lib/format";
 import { useAsync } from "@/lib/use-async";
 import type { Resume } from "@/lib/types";
 import { Button, IconButton } from "@/components/ui/Button";
@@ -11,6 +11,7 @@ import { FormError, Input, Textarea } from "@/components/ui/Field";
 import { ConfirmDialog, Modal } from "@/components/ui/Modal";
 import { Card, CardHeader, EmptyState, ErrorBanner, LimitedData, Note, Skeleton } from "@/components/ui/Primitives";
 import { useToast } from "@/components/ui/Toast";
+import { CvImportDialog } from "./CvImport";
 
 interface ResumeStats { resume_id: string | null; applications: number; responses: number; response_rate: number | null; limited_data: boolean }
 
@@ -57,12 +58,49 @@ function ResumeForm({ resume, onClose, onSaved }: { resume?: Resume; onClose: ()
   );
 }
 
+/** Opens the stored PDF in a new tab. The tab opens first so popup blockers allow it. */
+async function openPdf(resume: Resume, onError: (message: string) => void) {
+  const tab = window.open("", "_blank");
+  try {
+    const url = URL.createObjectURL(await api.resumeFile(resume.id));
+    if (tab) tab.location.href = url;
+    else window.location.href = url;
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (err) {
+    tab?.close();
+    onError(err instanceof Error ? err.message : "Could not open the PDF.");
+  }
+}
+
 export function ResumesPanel() {
   const toast = useToast();
   const { data: resumes, error, loading, reload } = useAsync(() => api.listResumes(), []);
   const { data: comparison } = useAsync(() => api.getResumeComparison(), []);
   const [editing, setEditing] = useState<Resume | "new" | null>(null);
   const [deleting, setDeleting] = useState<Resume | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const target = useRef<Resume | null>(null);
+
+  const pickFile = (resume: Resume) => {
+    target.current = resume;
+    fileInput.current?.click();
+  };
+  const attach = async (file: File) => {
+    const resume = target.current;
+    if (!resume) return;
+    setUploadingId(resume.id);
+    try {
+      await api.attachResumeFile(resume.id, file);
+      toast(`PDF attached to ${resume.name}`);
+      reload();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not attach the PDF.", "error");
+    } finally {
+      setUploadingId(null);
+    }
+  };
   const stats = new Map<string, ResumeStats>((comparison?.resumes ?? []).map((r: ResumeStats) => [r.resume_id ?? "none", r]));
 
   const remove = async () => {
@@ -81,16 +119,28 @@ export function ResumesPanel() {
     <>
       <Card className="mb-4">
         <CardHeader title="Resumes" description="Every version you send, and the response rate observed for each"
-                    action={<Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setEditing("new")}>New resume</Button>} />
+                    action={
+                      <div className="flex gap-2">
+                        <Button size="sm" icon={<FileUp className="size-3.5" />} onClick={() => setImporting(true)}>Upload a CV</Button>
+                        <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setEditing("new")}>New resume</Button>
+                      </div>
+                    } />
+        <input ref={fileInput} type="file" accept="application/pdf,.pdf" className="sr-only" tabIndex={-1} aria-hidden
+               onChange={(e) => { if (e.target.files?.[0]) attach(e.target.files[0]); e.target.value = ""; }} />
       </Card>
       {error && <ErrorBanner message={error} onRetry={reload} />}
 
       {loading && !resumes ? <Skeleton className="h-48" /> : resumes && resumes.length === 0 ? (
         <Card>
           <EmptyState icon={<FileText className="size-5" />} title="No resumes yet"
-                      action={<Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing("new")}>Add a resume</Button>}>
-            Add each version you use (for example “Backend Engineer v2”), then pick it when you save an application.
-            Over time you&apos;ll see the response rate observed for each one.
+                      action={
+                        <div className="flex gap-2">
+                          <Button variant="primary" icon={<FileUp className="size-4" />} onClick={() => setImporting(true)}>Upload your CV</Button>
+                          <Button icon={<Plus className="size-4" />} onClick={() => setEditing("new")}>Add without a file</Button>
+                        </div>
+                      }>
+            Upload the PDF you send to employers. JobPilot fills your profile from it, keeps each version, and checks
+            postings against the words actually in it. Over time you&apos;ll see the response rate of each version.
           </EmptyState>
         </Card>
       ) : resumes && (
@@ -114,10 +164,35 @@ export function ResumesPanel() {
                     </div>
                     <div className="flex opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                       <IconButton label="Edit resume" onClick={() => setEditing(r)}><Pencil className="size-3.5" /></IconButton>
-                      <IconButton label="Delete resume" onClick={() => setDeleting(r)} className="hover:text-rose-600"><Trash2 className="size-3.5" /></IconButton>
+                      <IconButton label="Delete resume" onClick={() => setDeleting(r)} className="hover:text-rose-700"><Trash2 className="size-3.5" /></IconButton>
                     </div>
                   </div>
                   {r.notes && <p className="line-clamp-2 px-4 pb-3 text-xs text-stone-600">{r.notes}</p>}
+                  <div className="mx-4 mb-3 flex items-center gap-2 rounded-md border border-stone-200 px-2.5 py-1.5 text-xs">
+                    {r.file_name ? (
+                      <>
+                        <Paperclip className="size-3.5 shrink-0 text-stone-500" />
+                        <span className="min-w-0 flex-1 truncate text-stone-700" title={r.file_name}>{r.file_name}</span>
+                        <span className="shrink-0 tabular-nums text-stone-500">{formatBytes(r.file_size ?? 0)}</span>
+                        <button type="button" onClick={() => openPdf(r, (m) => toast(m, "error"))} aria-label={`Open the PDF of ${r.name}`}
+                                className="inline-flex shrink-0 items-center gap-1 font-medium text-stone-700 hover:text-stone-900">
+                          Open<ExternalLink className="size-3" />
+                        </button>
+                        <button type="button" onClick={() => pickFile(r)} disabled={uploadingId === r.id}
+                                className="shrink-0 font-medium text-stone-500 hover:text-stone-900">
+                          {uploadingId === r.id ? "Uploading…" : "Replace"}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="flex-1 text-stone-500">No PDF attached</span>
+                        <button type="button" onClick={() => pickFile(r)} disabled={uploadingId === r.id}
+                                className="inline-flex shrink-0 items-center gap-1 font-medium text-stone-700 hover:text-stone-900">
+                          <Paperclip className="size-3" />{uploadingId === r.id ? "Uploading…" : "Attach PDF"}
+                        </button>
+                      </>
+                    )}
+                  </div>
                   <dl className="mt-auto grid grid-cols-3 divide-x divide-stone-100 border-t border-stone-100 text-center">
                     <div className="py-2.5">
                       <dt className="text-[11px] text-stone-500">Used in</dt>
@@ -151,6 +226,7 @@ export function ResumesPanel() {
         </>
       )}
 
+      {importing && <CvImportDialog onClose={() => { setImporting(false); reload(); }} />}
       {editing && <ResumeForm resume={editing === "new" ? undefined : editing} onClose={() => setEditing(null)}
                               onSaved={() => { setEditing(null); reload(); }} />}
       {deleting && (

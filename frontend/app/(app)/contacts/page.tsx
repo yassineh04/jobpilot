@@ -224,7 +224,7 @@ function ContactsInner() {
                 </div>
                 <div className="flex">
                   <IconButton label="Edit contact" onClick={() => setEditing(selected)}><Pencil className="size-3.5" /></IconButton>
-                  <IconButton label="Delete contact" onClick={() => setDeleting(selected)} className="hover:text-rose-600"><Trash2 className="size-3.5" /></IconButton>
+                  <IconButton label="Delete contact" onClick={() => setDeleting(selected)} className="hover:text-rose-700"><Trash2 className="size-3.5" /></IconButton>
                 </div>
               </div>
               <div className="space-y-3 p-4 text-[13px]">

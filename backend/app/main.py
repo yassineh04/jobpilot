@@ -7,7 +7,7 @@ from app.config import settings
 from app.scheduler import start_scheduler, scheduler
 from app.routers import (auth, applications, calendar, stats, companies, profile,
                           matching, interviews, interview_questions, resumes, analytics,
-                          contacts, tasks, dashboard, search, insights, jobs, assistant, ai)
+                          contacts, tasks, dashboard, search, insights, jobs, assistant, ai, agent, cv)
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -47,7 +47,7 @@ app.add_middleware(
 
 for module in (auth, dashboard, applications, matching, companies, contacts, tasks,
                calendar, stats, profile, interviews, interview_questions, resumes, analytics,
-               insights, search, jobs, assistant, ai):
+               insights, search, jobs, assistant, ai, agent, cv):
     app.include_router(module.router)
 
 

@@ -1,5 +1,7 @@
 import type {
-  AiBrief, AiDebrief, AiFeedback, AiPractice, AiStatus, AppEvent, Application, AssistantReply, Contact,
+  AgentProposal, AgentReply, AiBrief, AiDebrief, AnalyticsOverview, DashboardSummary, MarketInsights, ResumeComparison, Stats,
+  WeaknessMap, CvCheck, CvImportCounts, CvParseResult, Education, Experience,
+  JobImport, Language, Preferences, ProfileSummary, Project, Skill, AiFeedback, AiPractice, AiStatus, AppEvent, Application, AssistantReply, Contact,
   Interview, MatchResult, ParsedJob, Question, Resume, SearchGroup, Task, Topic, User,
 } from "./types";
 
@@ -33,14 +35,15 @@ async function errorMessage(res: Response) {
   return "Request failed.";
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function send(path: string, options: RequestInit = {}): Promise<Response> {
   const token = getToken();
   let res: Response;
   try {
     res = await fetch(`${API_URL}${path}`, {
       ...options,
       headers: {
-        "Content-Type": "application/json",
+        // A FormData body sets its own multipart boundary
+        ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...options.headers,
       },
@@ -58,8 +61,20 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     }
   }
   if (!res.ok) throw new ApiError(await errorMessage(res), res.status);
+  return res;
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await send(path, options);
   if (res.status === 204) return null as T;
   return res.json();
+}
+
+function upload<T>(path: string, file: File, fields: Record<string, string> = {}, method = "POST") {
+  const body = new FormData();
+  body.append("file", file);
+  Object.entries(fields).forEach(([k, v]) => body.append(k, v));
+  return request<T>(path, { method, body });
 }
 
 const json = (method: string, body?: unknown): RequestInit => ({
@@ -98,11 +113,10 @@ export const api = {
     request<{ access_token: string }>("/auth/change-password", json("POST", { current_password, new_password })),
 
   // Dashboard / search / insights
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  dashboard: () => request<any>("/dashboard/summary"),
+  dashboard: () => request<DashboardSummary>("/dashboard/summary"),
+  badges: () => request<{ agenda: number; contacts: number; tasks_due: number; interviews_next_7_days: number }>("/dashboard/badges"),
   search: (q: string) => request<{ query: string; total: number; groups: SearchGroup[] }>(`/search/${qs({ q })}`),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  marketInsights: () => request<any>("/insights/market"),
+  marketInsights: () => request<MarketInsights>("/insights/market"),
 
   // Applications
   listApplications: (params: Record<string, string | undefined> = {}) =>
@@ -116,8 +130,10 @@ export const api = {
   addInterview: (appId: string, data: Body) =>
     request<Interview>(`/applications/${appId}/interviews`, json("POST", data)),
   getApplicationMatch: (id: string) => request<MatchResult>(`/applications/${id}/match`),
+  cvCheck: (id: string) => request<CvCheck>(`/applications/${id}/cv-check`),
   parseJob: (text: string) =>
     request<{ job: ParsedJob; method: "ai" | "rules"; notice: string | null }>("/jobs/parse", json("POST", { text })),
+  importJobUrl: (url: string) => request<JobImport>("/jobs/import-url", json("POST", { url })),
   listCompanies: () => request<{ id: string; name: string }[]>("/companies/"),
 
   // Interviews
@@ -139,33 +155,25 @@ export const api = {
   deleteTask: (id: string) => request<null>(`/tasks/${id}`, json("DELETE")),
 
   // Stats & analytics
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getStats: () => request<any>("/stats/"),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getAnalyticsOverview: () => request<any>("/analytics/overview"),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getResumeComparison: () => request<any>("/analytics/resumes"),
+  getStats: () => request<Stats>("/stats/"),
+  getAnalyticsOverview: () => request<AnalyticsOverview>("/analytics/overview"),
+  getResumeComparison: () => request<ResumeComparison>("/analytics/resumes"),
 
   // Profile
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  profileSummary: () => request<any>("/profile/summary"),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  listEducation: () => request<any[]>("/profile/education"),
+  profileSummary: () => request<ProfileSummary>("/profile/summary"),
+  listEducation: () => request<Education[]>("/profile/education"),
   createEducation: (data: Body) => request("/profile/education", json("POST", data)),
   updateEducation: (id: string, data: Body) => request(`/profile/education/${id}`, json("PATCH", data)),
   deleteEducation: (id: string) => request(`/profile/education/${id}`, json("DELETE")),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  listExperiences: () => request<any[]>("/profile/experiences"),
+  listExperiences: () => request<Experience[]>("/profile/experiences"),
   createExperience: (data: Body) => request("/profile/experiences", json("POST", data)),
   updateExperience: (id: string, data: Body) => request(`/profile/experiences/${id}`, json("PATCH", data)),
   deleteExperience: (id: string) => request(`/profile/experiences/${id}`, json("DELETE")),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  listProjects: () => request<any[]>("/profile/projects"),
+  listProjects: () => request<Project[]>("/profile/projects"),
   createProject: (data: Body) => request("/profile/projects", json("POST", data)),
   updateProject: (id: string, data: Body) => request(`/profile/projects/${id}`, json("PATCH", data)),
   deleteProject: (id: string) => request(`/profile/projects/${id}`, json("DELETE")),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  listSkills: () => request<any[]>("/profile/skills"),
+  listSkills: () => request<Skill[]>("/profile/skills"),
   createSkill: (data: Body) => request("/profile/skills", json("POST", data)),
   updateSkill: (id: string, data: Body) => request(`/profile/skills/${id}`, json("PATCH", data)),
   deleteSkill: (id: string) => request(`/profile/skills/${id}`, json("DELETE")),
@@ -173,12 +181,10 @@ export const api = {
     request(`/profile/skills/${skillId}/evidence`, json("POST", data)),
   deleteSkillEvidence: (skillId: string, evidenceId: string) =>
     request(`/profile/skills/${skillId}/evidence/${evidenceId}`, json("DELETE")),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  listLanguages: () => request<any[]>("/profile/languages"),
+  listLanguages: () => request<Language[]>("/profile/languages"),
   createLanguage: (data: Body) => request("/profile/languages", json("POST", data)),
   deleteLanguage: (id: string) => request(`/profile/languages/${id}`, json("DELETE")),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getPreferences: () => request<any>("/profile/preferences"),
+  getPreferences: () => request<Preferences>("/profile/preferences"),
   updatePreferences: (data: Body) => request("/profile/preferences", json("PUT", data)),
 
   // Interview question bank
@@ -190,14 +196,19 @@ export const api = {
   createQuestion: (data: Body) => request<Question>("/interview-questions/", json("POST", data)),
   updateQuestion: (id: string, data: Body) => request<Question>(`/interview-questions/${id}`, json("PATCH", data)),
   deleteQuestion: (id: string) => request<null>(`/interview-questions/${id}`, json("DELETE")),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getWeaknessMap: () => request<any>("/interview-questions/weakness-map"),
+  getWeaknessMap: () => request<WeaknessMap>("/interview-questions/weakness-map"),
 
   // Resumes
   listResumes: () => request<Resume[]>("/resumes/"),
   createResume: (data: Body) => request<Resume>("/resumes/", json("POST", data)),
   updateResume: (id: string, data: Body) => request<Resume>(`/resumes/${id}`, json("PATCH", data)),
   deleteResume: (id: string) => request<null>(`/resumes/${id}`, json("DELETE")),
+  attachResumeFile: (id: string, file: File) => upload<Resume>(`/resumes/${id}/file`, file, {}, "PUT"),
+  removeResumeFile: (id: string) => request<Resume>(`/resumes/${id}/file`, json("DELETE")),
+  resumeFile: async (id: string) => (await send(`/resumes/${id}/file`)).blob(),
+  parseCv: (file: File, saveAsResume: boolean) =>
+    upload<CvParseResult>("/profile/cv/parse", file, { save_as_resume: String(saveAsResume) }),
+  importCv: (data: Body) => request<CvImportCounts>("/profile/cv/import", json("POST", data)),
 
   // AI (free providers; every claim is verified server-side)
   aiStatus: () => request<AiStatus>("/ai/status"),
@@ -206,10 +217,17 @@ export const api = {
   practiceQuestions: (appId: string) => request<AiPractice>(`/ai/applications/${appId}/practice`, json("POST")),
   answerFeedback: (question: string, answer: string, application_id?: string | null) =>
     request<AiFeedback>("/ai/feedback", json("POST", { question, answer, application_id: application_id || null })),
-  draftMessage: (appId: string, kind: "thank_you" | "follow_up" | "networking", contact_id?: string | null, notes = "") =>
+  draftMessage: (appId: string, kind: "thank_you" | "follow_up" | "networking" | "cover_letter", contact_id?: string | null, notes = "") =>
     request<{ subject: string; body: string }>(`/ai/applications/${appId}/draft`,
       json("POST", { kind, contact_id: contact_id || null, notes })),
   debrief: () => request<AiDebrief>("/ai/debrief", json("POST")),
   assistantChat: (messages: { role: "user" | "assistant"; content: string }[]) =>
     request<AssistantReply>("/assistant/chat", json("POST", { messages })),
+
+  // Agent: reads your data and proposes changes; a change only happens when you confirm it
+  agentChat: (messages: { role: "user" | "assistant"; content: string }[], context: { path?: string; local_time?: string }) =>
+    request<AgentReply>("/agent/chat", json("POST", { messages, context })),
+  agentConfirm: (action: Pick<AgentProposal, "tool" | "input">, tz_offset_minutes: number) =>
+    request<{ ok: boolean; message: string; href: string }>("/agent/actions",
+      json("POST", { tool: action.tool, input: action.input, tz_offset_minutes })),
 };

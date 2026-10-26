@@ -1,36 +1,24 @@
 "use client";
 import Link from "next/link";
 import {
-  ArrowUpRight, Briefcase, CalendarClock, Check, Circle, Clock, MessageSquareText, Plus, UserRound,
+  ArrowUpRight, CalendarClock, Check, Circle, Clock, Plus, UserRound,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { EVENT_LABELS, STATUS_META, STATUSES } from "@/lib/constants";
 import { cn, daysUntil, formatDateTime, formatShortDate, pluralize, relativeTime } from "@/lib/format";
 import { useAsync } from "@/lib/use-async";
-import type { ApplicationRef, Status } from "@/lib/types";
-import { ButtonLink } from "@/components/ui/Button";
+import type { ApplicationRef, DashboardSummary, Status } from "@/lib/types";
+import { Button, ButtonLink } from "@/components/ui/Button";
+import { CompanyAvatar } from "@/components/ui/CompanyAvatar";
+import { Delta, Sparkline } from "@/components/ui/Trend";
 import {
-  Card, CardHeader, EmptyState, ErrorBanner, PageHeader, Skeleton, Stat, StatusDot,
+  Card, CardHeader, ErrorBanner, PageHeader, Skeleton, StatusDot,
 } from "@/components/ui/Primitives";
 import { useToast } from "@/components/ui/Toast";
 import { DebriefCard } from "@/components/ai/DebriefCard";
-
-interface Summary {
-  user_name: string;
-  kpis: { active_applications: number; upcoming_interviews: number; follow_ups_due: number;
-          applied_this_week: number; response_rate: number | null; submitted: number };
-  pipeline: { status: Status; count: number }[];
-  upcoming_interviews: { id: string; scheduled_at: string; interview_type: string | null;
-                         location_or_link: string | null; application: ApplicationRef | null }[];
-  follow_ups: { kind: "task" | "contact"; id: string; title: string; due_date: string }[];
-  deadlines: (ApplicationRef & { deadline: string })[];
-  waiting_for_response: ApplicationRef[];
-  recent_activity: { id: string; event_type: keyof typeof EVENT_LABELS; from_status: Status | null;
-                     to_status: Status | null; description: string | null; occurred_at: string;
-                     application: ApplicationRef | null }[];
-  insights: { top_skill: string | null; top_skill_count: number; top_location: string | null; postings_analyzed: number };
-  has_profile: boolean;
-}
+import { Onboarding } from "@/components/dashboard/Onboarding";
+import { AgentMark } from "@/components/agent/AgentMark";
+import { useAgent } from "@/components/agent/AgentProvider";
 
 function greeting() {
   const h = new Date().getHours();
@@ -45,7 +33,40 @@ function AppLink({ app }: { app: ApplicationRef }) {
   );
 }
 
-function Pipeline({ pipeline }: { pipeline: Summary["pipeline"] }) {
+/** Two-line application row with the company avatar; used by the side lists. */
+function AppRow({ app, meta, trailing }: { app: ApplicationRef; meta?: React.ReactNode; trailing?: React.ReactNode }) {
+  return (
+    <li>
+      <Link href={`/applications/${app.id}`} className="group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-stone-50">
+        <CompanyAvatar name={app.company_name} />
+        <div className="min-w-0 flex-1 text-[13px]">
+          <p className="truncate font-medium text-stone-900 group-hover:underline underline-offset-2">{app.position_title}</p>
+          <p className="truncate text-xs text-stone-500">{app.company_name}{meta && <> · {meta}</>}</p>
+        </div>
+        {trailing}
+      </Link>
+    </li>
+  );
+}
+
+function Kpi({ label, value, hint, href, trend, trendLabel }: {
+  label: string; value: React.ReactNode; hint: React.ReactNode; href: string; trend?: number[]; trendLabel?: string;
+}) {
+  return (
+    <Link href={href} className="group flex items-end justify-between gap-3 bg-white px-4 py-3.5 transition-colors hover:bg-stone-50">
+      <div className="min-w-0">
+        <p className="flex items-center gap-1 text-xs font-medium text-stone-500">
+          {label}<ArrowUpRight className="size-3 opacity-0 transition-opacity group-hover:opacity-100" />
+        </p>
+        <p className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-stone-900">{value}</p>
+        <div className="mt-0.5 flex h-4 items-center truncate text-xs text-stone-500">{hint}</div>
+      </div>
+      {trend && <Sparkline values={trend} label={trendLabel} className="mb-1 hidden shrink-0 xl:block" />}
+    </Link>
+  );
+}
+
+function Pipeline({ pipeline }: { pipeline: DashboardSummary["pipeline"] }) {
   const total = pipeline.reduce((s, p) => s + p.count, 0) || 1;
   const counts = Object.fromEntries(pipeline.map((p) => [p.status, p.count])) as Record<Status, number>;
   return (
@@ -75,7 +96,7 @@ function Pipeline({ pipeline }: { pipeline: Summary["pipeline"] }) {
   );
 }
 
-function Activity({ events }: { events: Summary["recent_activity"] }) {
+function Activity({ events }: { events: DashboardSummary["recent_activity"] }) {
   return (
     <Card>
       <CardHeader title="Recent activity" />
@@ -132,7 +153,8 @@ function DashboardSkeleton() {
 }
 
 export default function DashboardPage() {
-  const { data, error, loading, reload } = useAsync<Summary>(() => api.dashboard());
+  const agent = useAgent();
+  const { data, error, loading, reload } = useAsync(() => api.dashboard());
   const toast = useToast();
 
   if (loading && !data) return <DashboardSkeleton />;
@@ -156,40 +178,24 @@ export default function DashboardPage() {
     <>
       <PageHeader title={`${greeting()}, ${data.user_name.split(" ")[0]}`} description={today}
                   actions={<>
-                    <ButtonLink href="/assistant" variant="secondary" icon={<MessageSquareText className="size-4" />}>Ask</ButtonLink>
+                    <Button variant="secondary" icon={<AgentMark />} onClick={() => agent.setOpen(true)}>Ask the agent</Button>
                     <ButtonLink href="/applications?new=1" variant="primary" icon={<Plus className="size-4" />}>New application</ButtonLink>
                   </>} />
 
       {total === 0 ? (
-        <Card>
-          <EmptyState icon={<Briefcase className="size-5" />} title="Let's set up your job search"
-                      action={<ButtonLink href="/applications?new=1" variant="primary" icon={<Plus className="size-4" />}>Add your first application</ButtonLink>}>
-            Save the jobs you are interested in, even before applying. Paste the posting and JobPilot
-            extracts the details for you. Your pipeline, follow-ups and analytics build themselves from there.
-          </EmptyState>
-          <div className="grid border-t border-stone-100 sm:grid-cols-3">
-            {[
-              { href: "/profile", title: "Build your profile", text: "Skills backed by evidence power the compatibility review." },
-              { href: "/profile?tab=resumes", title: "Add your resumes", text: "Track which version you sent where." },
-              { href: "/contacts", title: "Add contacts", text: "Recruiters, referrals and follow-up reminders." },
-            ].map((s) => (
-              <Link key={s.href} href={s.href} className="group border-stone-100 p-4 sm:border-l first:border-l-0 hover:bg-stone-50">
-                <p className="flex items-center gap-1 text-[13px] font-medium text-stone-900">
-                  {s.title}<ArrowUpRight className="size-3.5 text-stone-500 group-hover:text-stone-700" />
-                </p>
-                <p className="mt-0.5 text-xs text-stone-500">{s.text}</p>
-              </Link>
-            ))}
-          </div>
-        </Card>
+        <Onboarding />
       ) : (
         <div className="space-y-6">
-          <Card className="grid grid-cols-2 divide-stone-100 md:grid-cols-4 md:divide-x [&>*:nth-child(-n+2)]:border-b md:[&>*:nth-child(-n+2)]:border-b-0 [&>*]:border-stone-100">
-            <Stat label="Active applications" value={data.kpis.active_applications}
-                  hint={data.kpis.response_rate !== null ? `${data.kpis.response_rate}% observed response rate` : "Submitted and still open"} />
-            <Stat label="Interviews" value={data.kpis.upcoming_interviews} hint="Next 14 days" />
-            <Stat label="Follow-ups due" value={data.kpis.follow_ups_due} hint="Tasks and contacts, today or overdue" />
-            <Stat label="Applied this week" value={data.kpis.applied_this_week} hint="Last 7 days" />
+          <Card className="grid grid-cols-2 gap-px overflow-hidden bg-stone-100 md:grid-cols-4">
+            <Kpi label="Active applications" value={data.kpis.active_applications} href="/applications?view=list"
+                 hint={data.kpis.response_rate !== null ? `${data.kpis.response_rate}% response rate` : "Submitted and still open"}
+                 trend={data.trend.map((w) => w.responses)} trendLabel="Responses per week, last 8 weeks" />
+            <Kpi label="Interviews" value={data.kpis.upcoming_interviews} hint="Next 14 days" href="/agenda" />
+            <Kpi label="Follow-ups due" value={data.kpis.follow_ups_due} href="/agenda"
+                 hint={data.kpis.follow_ups_due ? <span className="text-amber-700">Today or overdue</span> : "All caught up"} />
+            <Kpi label="Applied this week" value={data.kpis.applied_this_week} href="/analytics"
+                 hint={<Delta current={data.kpis.applied_this_week} previous={data.kpis.applied_previous_week} />}
+                 trend={data.trend.map((w) => w.applied)} trendLabel="Applications sent per week, last 8 weeks" />
           </Card>
 
           <div className="grid gap-6 lg:grid-cols-3">
@@ -202,23 +208,23 @@ export default function DashboardPage() {
             <div className="space-y-6">
               <SideList title="Upcoming interviews" empty={data.upcoming_interviews.length === 0 && "No interviews in the next two weeks."}
                         action={<Link href="/agenda" className="text-xs font-medium text-stone-500 hover:text-stone-900">Agenda</Link>}>
-                {data.upcoming_interviews.map((i) => (
-                  <li key={i.id} className="flex gap-3 px-4 py-2.5">
+                {data.upcoming_interviews.map((i) => i.application ? (
+                  <AppRow key={i.id} app={i.application} meta={i.interview_type || "Interview"}
+                          trailing={<span className="shrink-0 text-right text-xs tabular-nums text-stone-600">{formatDateTime(i.scheduled_at)}</span>} />
+                ) : (
+                  <li key={i.id} className="flex gap-3 px-4 py-2.5 text-[13px]">
                     <CalendarClock className="mt-0.5 size-4 shrink-0 text-stone-500" />
-                    <div className="min-w-0 text-[13px]">
-                      {i.application && <AppLink app={i.application} />}
-                      <p className="text-xs text-stone-500">{i.interview_type || "Interview"} · {formatDateTime(i.scheduled_at)}</p>
-                    </div>
+                    <p className="text-stone-600">{i.interview_type || "Interview"} · {formatDateTime(i.scheduled_at)}</p>
                   </li>
                 ))}
               </SideList>
 
-              <SideList title="Follow-ups due" empty={data.follow_ups.length === 0 && "Nothing due. Nice."}
+              <SideList title="Follow-ups due" empty={data.follow_ups.length === 0 && "Nothing due"}
                         action={<Link href="/agenda" className="text-xs font-medium text-stone-500 hover:text-stone-900">Agenda</Link>}>
                 {data.follow_ups.map((f) => (
                   <li key={`${f.kind}-${f.id}`} className="flex items-start gap-2.5 px-4 py-2.5 text-[13px]">
                     {f.kind === "task" ? (
-                      <button onClick={() => completeTask(f.id)} aria-label={`Complete ${f.title}`}
+                      <button type="button" onClick={() => completeTask(f.id)} aria-label={`Complete ${f.title}`}
                               className="group mt-px text-stone-500 hover:text-accent-600">
                         <Circle className="size-4 group-hover:hidden" /><Check className="hidden size-4 group-hover:block" />
                       </button>
@@ -227,7 +233,7 @@ export default function DashboardPage() {
                       {f.kind === "contact"
                         ? <Link href={`/contacts?focus=${f.id}`} className="text-stone-900 hover:underline underline-offset-2">{f.title}</Link>
                         : <p className="text-stone-900">{f.title}</p>}
-                      <p className={cn("text-xs", daysUntil(f.due_date) < 0 ? "text-rose-600" : "text-stone-500")}>
+                      <p className={cn("text-xs", daysUntil(f.due_date) < 0 ? "text-rose-700" : "text-stone-500")}>
                         {daysUntil(f.due_date) < 0 ? `Overdue · ${formatShortDate(f.due_date)}` : "Due today"}
                       </p>
                     </div>
@@ -238,12 +244,10 @@ export default function DashboardPage() {
               {data.deadlines.length > 0 && (
                 <SideList title="Application deadlines">
                   {data.deadlines.map((d) => (
-                    <li key={d.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-[13px]">
-                      <div className="min-w-0 truncate"><AppLink app={d} /></div>
-                      <span className={cn("shrink-0 text-xs tabular-nums", daysUntil(d.deadline) <= 3 ? "text-rose-600" : "text-stone-500")}>
-                        {relativeTime(d.deadline)}
-                      </span>
-                    </li>
+                    <AppRow key={d.id} app={d}
+                            trailing={<span className={cn("shrink-0 text-xs tabular-nums", daysUntil(d.deadline) <= 3 ? "font-medium text-rose-700" : "text-stone-500")}>
+                              {relativeTime(d.deadline)}
+                            </span>} />
                   ))}
                 </SideList>
               )}
@@ -251,10 +255,7 @@ export default function DashboardPage() {
               {data.waiting_for_response.length > 0 && (
                 <SideList title="No response for 2+ weeks">
                   {data.waiting_for_response.map((a) => (
-                    <li key={a.id} className="flex items-center gap-2.5 px-4 py-2.5 text-[13px]">
-                      <Clock className="size-4 shrink-0 text-stone-500" />
-                      <div className="min-w-0 truncate"><AppLink app={a} /></div>
-                    </li>
+                    <AppRow key={a.id} app={a} trailing={<Clock className="size-3.5 shrink-0 text-stone-500" aria-label="Waiting" />} />
                   ))}
                 </SideList>
               )}

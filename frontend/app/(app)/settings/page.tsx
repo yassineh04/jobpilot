@@ -10,6 +10,7 @@ import { FormError, Input } from "@/components/ui/Field";
 import { Badge, Card, CardHeader, PageHeader, Skeleton } from "@/components/ui/Primitives";
 import { useToast } from "@/components/ui/Toast";
 import { useAiStatus } from "@/components/ai/AiKit";
+import { ThemeControls } from "@/components/shell/UserMenu";
 
 function Toggle({ checked, onChange, label, description }: {
   checked: boolean; onChange: (v: boolean) => void; label: string; description: string;
@@ -194,6 +195,10 @@ export default function SettingsPage() {
           </Card>
         </div>
         <div className="space-y-6">
+          <Card>
+            <CardHeader title="Appearance" description="Saved on this device. System follows your operating system." />
+            <div className="p-4"><ThemeControls /></div>
+          </Card>
           <AiSection />
           <Card>
             <CardHeader title="Session" />

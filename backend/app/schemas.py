@@ -133,6 +133,7 @@ class ApplicationUpdate(BaseModel):
     resume_id: Optional[uuid.UUID] = None
     deadline: Optional[date] = None
     currency: Optional[str] = None
+    applied_date: Optional[datetime] = None  # lets an undo restore the original date
 
 
 class ApplicationOut(BaseModel):
@@ -178,7 +179,7 @@ class StatsOut(BaseModel):
     avg_salary_min: Optional[float]
     avg_salary_max: Optional[float]
     applications_per_month: dict
-    
+
 class EducationIn(BaseModel):
     institution: str
     degree: str
@@ -289,7 +290,7 @@ class CandidatePreferenceOut(BaseModel):
     @classmethod
     def _roles_to_strings(cls, value):
         return [x.role if hasattr(x, "role") else x for x in (value or [])]
-    
+
 class TopicIn(BaseModel):
     name: str = Field(min_length=1, max_length=60)
 
@@ -335,7 +336,7 @@ class QuestionOut(QuestionIn):
     id: uuid.UUID
     topic_name: Optional[str] = None
     created_at: datetime
-    
+
 class ResumeIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     target_role: Optional[str] = None
@@ -348,6 +349,8 @@ class ResumeOut(ResumeIn):
     created_at: datetime
     updated_at: datetime
     application_count: int = 0
+    file_name: Optional[str] = None
+    file_size: Optional[int] = None
 
 
 class ApplicationRef(BaseModel):
@@ -534,6 +537,17 @@ class JobParseOut(BaseModel):
     notice: Optional[str] = None
 
 
+class JobImportIn(BaseModel):
+    url: str = Field(min_length=4, max_length=2000)
+    use_ai: bool = True
+
+
+class JobImportOut(JobParseOut):
+    text: str
+    url: str
+    source: str
+
+
 class AssistantMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str = Field(min_length=1, max_length=4000)
@@ -563,3 +577,127 @@ class AssistantOut(BaseModel):
     reply: str
     tool_calls: List[AssistantToolCall] = []
     sources: List[AssistantSource] = []
+
+class AgentContext(BaseModel):
+    path: Optional[str] = Field(default=None, max_length=200)
+    local_time: Optional[str] = Field(default=None, max_length=40)
+
+
+class AgentIn(BaseModel):
+    messages: List[AssistantMessage] = Field(min_length=1, max_length=30)
+    context: AgentContext = AgentContext()
+
+
+class AgentProposal(BaseModel):
+    id: str
+    tool: str
+    input: dict
+    title: str
+    detail: str = ""
+
+
+class AgentOut(BaseModel):
+    reply: str
+    steps: List[str] = []
+    sources: List[AssistantSource] = []
+    actions: List[AgentProposal] = []
+    mode: Literal["agent", "read_only"] = "agent"
+
+
+class AgentActionIn(BaseModel):
+    tool: str = Field(max_length=60)
+    input: dict
+    tz_offset_minutes: int = Field(default=0, ge=-900, le=900)
+
+
+class AgentActionOut(BaseModel):
+    ok: bool
+    message: str
+    href: str
+
+
+# ---------- CV import ----------
+class CVExperienceItem(BaseModel):
+    title: str
+    company: str
+    location: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    current: bool = False
+    achievements: Optional[str] = None
+    exists: bool = False
+
+
+class CVEducationItem(EducationIn):
+    exists: bool = False
+
+
+class CVProjectItem(ProjectIn):
+    exists: bool = False
+
+
+class CVSkillItem(BaseModel):
+    name: str
+    category: Optional[str] = None
+    exists: bool = False
+
+
+class CVLanguageItem(LanguageIn):
+    exists: bool = False
+
+
+class CVParseOut(BaseModel):
+    method: Literal["ai", "rules"]
+    notice: Optional[str] = None
+    pages: int
+    removed: int = 0
+    resume: Optional[ResumeOut] = None
+    full_name: str = ""
+    headline: str = ""
+    experiences: List[CVExperienceItem] = []
+    education: List[CVEducationItem] = []
+    projects: List[CVProjectItem] = []
+    skills: List[CVSkillItem] = []
+    languages: List[CVLanguageItem] = []
+
+
+class CVImportIn(BaseModel):
+    experiences: List[ExperienceIn] = Field(default=[], max_length=30)
+    education: List[EducationIn] = Field(default=[], max_length=20)
+    projects: List[ProjectIn] = Field(default=[], max_length=30)
+    skills: List[str] = Field(default=[], max_length=100)
+    languages: List[LanguageIn] = Field(default=[], max_length=20)
+
+    @field_validator("skills")
+    @classmethod
+    def _skills(cls, value):
+        return [s.strip()[:60] for s in value if s and s.strip()]
+
+
+class CVImportOut(BaseModel):
+    experiences: int
+    education: int
+    projects: int
+    skills: int
+    languages: int
+    evidence: int
+
+
+class CVKeyword(BaseModel):
+    skill: str
+    in_cv: bool
+
+
+class CVCheckResume(BaseModel):
+    id: uuid.UUID
+    name: str
+    version: Optional[str] = None
+    attached: bool
+
+
+class CVCheckOut(BaseModel):
+    status: Literal["ok", "no_posting", "no_resume"]
+    resume: Optional[CVCheckResume] = None
+    required: List[CVKeyword] = []
+    preferred: List[CVKeyword] = []
+    coverage: Optional[int] = None

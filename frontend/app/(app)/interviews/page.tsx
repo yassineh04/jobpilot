@@ -16,12 +16,6 @@ import {
 import { useToast } from "@/components/ui/Toast";
 import { PracticePanel } from "@/components/ai/PracticePanel";
 
-interface TopicStat {
-  topic: string; question_count: number; rated_count: number; average_confidence: number | null;
-  first_half_average: number | null; recent_average: number | null;
-  trend: "improving" | "declining" | "stable" | null; limited_data: boolean;
-}
-
 function QuestionForm({ question, topics, apps, onClose, onSaved, onTopicCreated }: {
   question?: Question; topics: Topic[]; apps: Application[];
   onClose: () => void; onSaved: () => void; onTopicCreated: () => void;
@@ -173,7 +167,7 @@ function QuestionBank() {
                 <p className="text-[13px] font-medium leading-snug text-stone-900">{q.question}</p>
                 <div className="flex shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                   <IconButton label="Edit question" onClick={() => setEditing(q)}><Pencil className="size-3.5" /></IconButton>
-                  <IconButton label="Delete question" onClick={() => setDeleting(q)} className="hover:text-rose-600"><Trash2 className="size-3.5" /></IconButton>
+                  <IconButton label="Delete question" onClick={() => setDeleting(q)} className="hover:text-rose-700"><Trash2 className="size-3.5" /></IconButton>
                 </div>
               </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
@@ -205,7 +199,7 @@ function QuestionBank() {
 
 const TREND = {
   improving: { icon: ArrowUpRight, text: "Improving", className: "text-accent-700" },
-  declining: { icon: ArrowDownRight, text: "Declining", className: "text-rose-600" },
+  declining: { icon: ArrowDownRight, text: "Declining", className: "text-rose-700" },
   stable: { icon: ArrowRight, text: "Stable", className: "text-stone-500" },
 };
 
@@ -227,7 +221,7 @@ function WeaknessMap() {
       <Card>
         <CardHeader title="Self-reported confidence by topic" description={`${data.total_questions} questions recorded · weakest first`} />
         <ul className="divide-y divide-stone-100">
-          {data.topics.map((t: TopicStat) => {
+          {data.topics.map((t) => {
             const trend = t.trend ? TREND[t.trend] : null;
             return (
               <li key={t.topic} className="px-4 py-3">

@@ -75,7 +75,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
   let lastGroup = "";
   return (
-    <div className="fixed inset-0 z-50 flex justify-center bg-stone-900/30 px-4 pt-[12vh] animate-fade-in"
+    <div className="fixed inset-0 z-50 flex justify-center bg-black/45 px-4 pt-[12vh] animate-fade-in"
          onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div role="dialog" aria-modal="true" aria-label="Search"
            className="h-fit w-full max-w-xl overflow-hidden rounded-lg border border-stone-200 bg-white shadow-pop animate-pop-in">
@@ -98,7 +98,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
             return (
               <div key={item.key}>
                 {header && <p className="px-4 pb-1 pt-2.5 text-[11px] font-medium uppercase tracking-wide text-stone-500">{header}</p>}
-                <button onMouseEnter={() => setActive(index)} onClick={() => go(item)}
+                <button type="button" onMouseEnter={() => setActive(index)} onClick={() => go(item)}
                         className={cn("flex w-full items-center gap-3 px-4 py-2 text-left", index === active && "bg-stone-100")}>
                   {item.icon && <span className="text-stone-500">{item.icon}</span>}
                   <span className="min-w-0 flex-1">

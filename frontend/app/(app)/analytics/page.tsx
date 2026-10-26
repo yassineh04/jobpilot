@@ -1,5 +1,4 @@
 "use client";
-/* eslint-disable @typescript-eslint/no-explicit-any -- analytics payloads are descriptive JSON */
 import { Suspense, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -9,7 +8,7 @@ import { api } from "@/lib/api";
 import { EMPLOYMENT_LABELS, REJECTION_LABELS, SENIORITY_LABELS, STATUS_META, WORK_MODE_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/format";
 import { useAsync } from "@/lib/use-async";
-import type { Status } from "@/lib/types";
+import type { AnalyticsOverview, Share, Stats, Status } from "@/lib/types";
 import { ButtonLink } from "@/components/ui/Button";
 import {
   Badge, Card, CardHeader, EmptyState, ErrorBanner, LimitedData, Meter, Note, PageHeader, Skeleton, Stat, Tabs,
@@ -20,7 +19,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "pipeline", label: "Pipeline" }, { id: "works", label: "What works" }, { id: "market", label: "Market" },
 ];
 
-const ACCENT = "#2f7f59";
+const ACCENT = "var(--color-accent-500)";
 
 function BarRow({ label, value, max, right, tone = "bg-accent-500", badge }: {
   label: React.ReactNode; value: number; max: number; right: React.ReactNode; tone?: string; badge?: React.ReactNode;
@@ -41,7 +40,7 @@ function monthLabel(key: string) {
   return new Date(y, m - 1, 1).toLocaleDateString("en-CA", { month: "short", year: "2-digit" });
 }
 
-function Activity({ stats }: { stats: any }) {
+function Activity({ stats }: { stats: Stats }) {
   const monthly = Object.entries(stats.applications_per_month as Record<string, number>).map(([k, v]) => ({ month: monthLabel(k), count: v }));
   const statuses = (Object.entries(stats.by_status) as [Status, number][]).sort((a, b) => b[1] - a[1]);
   const max = Math.max(...statuses.map(([, v]) => v), 1);
@@ -60,10 +59,10 @@ function Activity({ stats }: { stats: any }) {
           <div className="h-64 px-2 py-4">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={monthly} margin={{ top: 4, right: 12, left: -18, bottom: 0 }}>
-                <CartesianGrid vertical={false} stroke="#f5f5f4" />
-                <XAxis dataKey="month" tickLine={false} axisLine={{ stroke: "#e7e5e4" }} tick={{ fontSize: 12, fill: "#78716c" }} />
-                <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: "#78716c" }} />
-                <Tooltip cursor={{ fill: "#f5f5f4" }} contentStyle={{ borderRadius: 6, border: "1px solid #e7e5e4", fontSize: 12 }} />
+                <CartesianGrid vertical={false} stroke="var(--color-stone-100)" />
+                <XAxis dataKey="month" tickLine={false} axisLine={{ stroke: "var(--color-stone-200)" }} tick={{ fontSize: 12, fill: "var(--color-stone-500)" }} />
+                <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: "var(--color-stone-500)" }} />
+                <Tooltip cursor={{ fill: "var(--color-stone-100)" }} contentStyle={{ borderRadius: 6, border: "1px solid var(--color-stone-200)", background: "var(--color-white)", color: "var(--color-stone-900)", fontSize: 12 }} />
                 <Bar dataKey="count" name="Applications" fill={ACCENT} radius={[3, 3, 0, 0]} maxBarSize={36} />
               </BarChart>
             </ResponsiveContainer>
@@ -88,16 +87,16 @@ function Activity({ stats }: { stats: any }) {
   );
 }
 
-function Health({ overview }: { overview: any }) {
+function Health({ overview }: { overview: AnalyticsOverview }) {
   const f = overview.funnel;
-  const max = Math.max(...f.stages.map((s: any) => s.count), 1);
+  const max = Math.max(...f.stages.map((s) => s.count), 1);
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
       <Card>
         <CardHeader title="Application funnel" description={`${f.stages[0].count} submitted applications`}
                     action={f.limited_data && <LimitedData label={`Fewer than ${f.min_sample}`} />} />
         <div className="space-y-4 p-4">
-          {f.stages.map((s: any, i: number) => (
+          {f.stages.map((s, i) => (
             <BarRow key={s.key} label={s.label} value={s.count} max={max}
                     right={<>{s.count}{i > 0 && f.steps[i - 1].rate !== null && <span className="text-stone-500"> · {f.steps[i - 1].rate}% of previous</span>}</>} />
           ))}
@@ -131,7 +130,7 @@ function Health({ overview }: { overview: any }) {
   );
 }
 
-function Rejections({ overview }: { overview: any }) {
+function Rejections({ overview }: { overview: AnalyticsOverview }) {
   const r = overview.rejections;
   if (r.total_rejected === 0) {
     return <Card><EmptyState title="No rejections recorded">When you move an application to Rejected you can note the reason. Patterns show up here.</EmptyState></Card>;
@@ -141,7 +140,7 @@ function Rejections({ overview }: { overview: any }) {
       <CardHeader title="Rejection reasons" description={`${r.total_rejected} rejections recorded`}
                   action={r.limited_data && <LimitedData label={`Fewer than ${r.min_sample}`} />} />
       <div className="space-y-3 p-4">
-        {r.items.map((i: any) => (
+        {r.items.map((i) => (
           <BarRow key={i.reason} label={REJECTION_LABELS[i.reason as keyof typeof REJECTION_LABELS] ?? i.reason}
                   value={i.count} max={r.total_rejected} right={<>{i.percent}% <span className="text-stone-500">· n = {i.count}</span></>} tone="bg-rose-400" />
         ))}
@@ -151,10 +150,10 @@ function Rejections({ overview }: { overview: any }) {
   );
 }
 
-function Sources({ overview }: { overview: any }) {
+function Sources({ overview }: { overview: AnalyticsOverview }) {
   const t = overview.timing;
-  const fmt = (s: any) => (s.median_days !== null ? `${s.median_days} days` : "—");
-  const groups: [string, string, (v: string) => string][] = [
+  const fmt = (s: { median_days: number | null }) => (s.median_days !== null ? `${s.median_days} days` : "—");
+  const groups: [keyof AnalyticsOverview["breakdowns"], string, (v: string) => string][] = [
     ["source", "By job source", (v) => v],
     ["work_mode", "By work mode", (v) => WORK_MODE_LABELS[v as keyof typeof WORK_MODE_LABELS] ?? v],
     ["location", "By location", (v) => v],
@@ -171,7 +170,7 @@ function Sources({ overview }: { overview: any }) {
         <Card>
           <CardHeader title="Median time spent in each stage" description="Before the application moved on" />
           <div className="grid gap-px bg-stone-100 sm:grid-cols-3 lg:grid-cols-5">
-            {t.time_in_stage.map((s: any) => (
+            {t.time_in_stage.map((s) => (
               <div key={s.status} className="bg-white px-4 py-3">
                 <p className="text-xs text-stone-500">{STATUS_META[s.status as Status]?.label ?? s.status}</p>
                 <p className="mt-0.5 text-lg font-semibold tabular-nums text-stone-900">{s.median_days ?? "—"}<span className="text-xs font-normal text-stone-500"> days</span></p>
@@ -187,7 +186,7 @@ function Sources({ overview }: { overview: any }) {
             <CardHeader title={title} description="Observed response rate, submitted applications" />
             <div className="space-y-3 p-4">
               {overview.breakdowns[key].length === 0 && <p className="text-[13px] text-stone-500">No submitted applications yet.</p>}
-              {overview.breakdowns[key].map((b: any) => (
+              {overview.breakdowns[key].map((b) => (
                 <BarRow key={b.label} label={label(b.label)} value={b.response_rate ?? 0} max={100}
                         badge={b.limited_data && <LimitedData label="Small sample" />}
                         right={<>{b.response_rate ?? 0}% <span className="text-stone-500">· {b.responses}/{b.applications}</span></>} />
@@ -203,11 +202,11 @@ function Sources({ overview }: { overview: any }) {
 function Resumes() {
   const { data, error, loading } = useAsync(() => api.getResumeComparison(), []);
   if (loading && !data) return <Skeleton className="h-64" />;
-  if (error) return <ErrorBanner message={error} />;
+  if (error || !data) return <ErrorBanner message={error ?? "Could not load the comparison."} />;
   if (!data.resumes.length) {
     return <Card><EmptyState title="No data yet" action={<ButtonLink href="/profile?tab=resumes" size="sm">Manage resumes</ButtonLink>}>Attach a resume when you submit applications to compare versions over time.</EmptyState></Card>;
   }
-  const best = Math.max(...data.resumes.map((r: any) => r.response_rate ?? 0));
+  const best = Math.max(...data.resumes.map((r) => r.response_rate ?? 0));
   return (
     <div className="space-y-4">
       <Card className="overflow-x-auto">
@@ -218,7 +217,7 @@ function Resumes() {
               <th className="pr-4 text-right font-medium">Interview rate</th></tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
-            {data.resumes.map((r: any) => (
+            {data.resumes.map((r) => (
               <tr key={r.resume_id ?? "none"}>
                 <td className="py-2.5 pl-4"><span className={cn(!r.resume_id && "text-stone-500")}>{r.name}</span> {r.limited_data && <LimitedData />}</td>
                 <td className="px-3 text-right tabular-nums">{r.applications}</td>
@@ -244,11 +243,11 @@ function Resumes() {
 function Market() {
   const { data, error, loading } = useAsync(() => api.marketInsights(), []);
   if (loading && !data) return <Skeleton className="h-64" />;
-  if (error) return <ErrorBanner message={error} />;
+  if (error || !data) return <ErrorBanner message={error ?? "Could not load market insights."} />;
   if (!data.postings_with_description) {
     return <Card><EmptyState title="No postings to analyze">Paste job descriptions into your applications to see which skills, locations and salaries come up most.</EmptyState></Card>;
   }
-  const dist = (title: string, items: any[], labels?: Record<string, string>) => (
+  const dist = (title: string, items: Share[], labels?: Record<string, string>) => (
     <Card>
       <CardHeader title={title} />
       <div className="space-y-2.5 p-4">
@@ -269,7 +268,7 @@ function Market() {
         <Card>
           <CardHeader title="Most requested skills" description="Share of your saved postings that mention each skill" />
           <div className="space-y-2.5 p-4">
-            {data.skills.map((s: any) => (
+            {data.skills.map((s) => (
               <BarRow key={s.skill} label={s.skill} value={s.percent} max={100} right={`${s.percent}% · ${s.count}`}
                       tone={s.in_profile ? "bg-accent-500" : "bg-stone-400"}
                       badge={!s.in_profile && <Badge tone="border border-dashed border-stone-300 text-stone-500">not in profile</Badge>} />
@@ -281,7 +280,7 @@ function Market() {
             <Card>
               <CardHeader title="Recurring skills not in your profile" />
               <div className="flex flex-wrap gap-1.5 p-4">
-                {data.skill_gaps.map((s: any) => <Badge key={s.skill} tone="bg-amber-50 text-amber-900">{s.skill} · {s.count}</Badge>)}
+                {data.skill_gaps.map((s) => <Badge key={s.skill} tone="bg-amber-50 text-amber-900">{s.skill} · {s.count}</Badge>)}
               </div>
               <div className="border-t border-stone-100 px-4 py-2.5">
                 <Note>If you have one of these skills, <Link href="/profile?tab=skills" className="text-accent-700 underline decoration-accent-300 underline-offset-2 hover:decoration-accent-700">add it with evidence</Link>.</Note>
@@ -292,7 +291,7 @@ function Market() {
             <Card>
               <CardHeader title="Posted salaries" description="Midpoint of each posted range" />
               <dl className="divide-y divide-stone-100 text-[13px]">
-                {data.salary.map((s: any) => (
+                {data.salary.map((s) => (
                   <div key={s.currency} className="px-4 py-2.5">
                     <dt className="text-xs text-stone-500">{s.currency} · {s.postings} postings</dt>
                     <dd className="tabular-nums text-stone-900">median {s.median_midpoint.toLocaleString("en-CA")} <span className="text-stone-500">(range {s.min.toLocaleString("en-CA")}–{s.max.toLocaleString("en-CA")})</span></dd>

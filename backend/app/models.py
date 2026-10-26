@@ -1,12 +1,11 @@
 import enum
 import uuid
 from datetime import datetime
-from sqlalchemy import (Column, String, Integer, Float, DateTime, Enum,
-                         ForeignKey, Boolean, Text, UniqueConstraint, Table, JSON)
+from sqlalchemy import (Column, Date, String, Integer, Float, DateTime, Enum,
+                         ForeignKey, Boolean, LargeBinary, Text, UniqueConstraint, Table, JSON)
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import backref, relationship
+from sqlalchemy.orm import backref, deferred, relationship
 from app.database import Base
-from sqlalchemy import Date
 
 
 class ApplicationStatus(str, enum.Enum):
@@ -172,7 +171,7 @@ class Interview(Base):
     location_or_link = Column(String, nullable=True)
     notes = Column(Text, nullable=True)
     reminder_sent = Column(Boolean, default=False)
-    
+
     interviewer = Column(String, nullable=True)
     duration_minutes = Column(Integer, nullable=True)
     stage = Column(String, nullable=True)
@@ -181,7 +180,7 @@ class Interview(Base):
     follow_up = Column(Text, nullable=True)
 
     application = relationship("Application", back_populates="interviews")
-    
+
 class SkillProficiency(str, enum.Enum):
     BEGINNER = "BEGINNER"
     INTERMEDIATE = "INTERMEDIATE"
@@ -349,7 +348,7 @@ class DesiredRole(Base):
     role = Column(String, nullable=False)
 
     preference = relationship("CandidatePreference", back_populates="desired_roles")
-    
+
 class QuestionTopic(Base):
     """User-extensible topic list (algorithms, SQL, system design, ...)."""
     __tablename__ = "question_topics"
@@ -391,7 +390,7 @@ class InterviewQuestion(Base):
     @property
     def topic_name(self):
         return self.topic.name if self.topic else None
-    
+
 class Resume(Base):
     __tablename__ = "resumes"
 
@@ -402,6 +401,11 @@ class Resume(Base):
     target_role = Column(String, nullable=True)
     version = Column(String, nullable=True)
     notes = Column(Text, nullable=True)
+    # The PDF as uploaded (stored in the database: hosts like Render have no persistent disk)
+    file_name = Column(String, nullable=True)
+    file_size = Column(Integer, nullable=True)
+    file_data = deferred(Column(LargeBinary, nullable=True))
+    content = deferred(Column(Text, nullable=True))  # text extracted from the PDF
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

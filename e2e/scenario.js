@@ -1,7 +1,8 @@
 // End-to-end scenario on the empty demo account (run `python -m app.seed` first, it resets it).
-// Covers: auth, profile, posting extraction, application page (fit, brief, draft, interviews, history),
-// agenda, interview practice with AI feedback, question bank, contacts, board drag & drop, dashboard
-// debrief, analytics, assistant, global search, password change and session guard.
+// Covers: auth, onboarding, profile, CV import from a real PDF, posting extraction, application page (fit,
+// CV keywords, brief, draft, interviews, history), agenda, interview practice with AI feedback, question
+// bank, contacts, board drag & drop with undo, dashboard debrief, analytics, agent, global search,
+// keyboard shortcuts, bulk actions, theme switching, password change and session guard.
 // AI steps run only when the API reports AI as enabled.
 // Usage: cd e2e && npm install && npx playwright install chromium && npm test
 const { chromium } = require("playwright");
@@ -34,10 +35,23 @@ Nice to have
 
 Salary: $105,000 - $125,000 CAD`;
 
+const CV_HTML = `<html><body style="font-family: Helvetica, Arial; font-size: 11pt; margin: 40px">
+<h1>Jordan Lee</h1><p>Software developer, Montreal</p>
+<h3>EXPERIENCE</h3><p><b>Developer Intern</b>, Coveo, May 2024 - August 2024</p>
+<ul><li>Built an indexing service in Python processing 2M documents per day</li>
+<li>Cut PostgreSQL query latency by 35% with partial indexes</li></ul>
+<h3>SKILLS</h3><p>Python, PostgreSQL, Docker, React, Git</p>
+<h3>LANGUAGES</h3><p>French (native), English (fluent)</p></body></html>`;
+
 (async () => {
   const aiEnabled = (await (await fetch(`${API}/ai/status`)).json()).enabled;
   const browser = await chromium.launch();
-  const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await context.newPage();
+  const printer = await context.newPage();  // prints the CV used by the import step
+  await printer.setContent(CV_HTML);
+  const cvPdf = await printer.pdf({ format: "Letter" });
+  await printer.close();
   const problems = [];
   page.on("pageerror", (e) => problems.push(`[pageerror] ${e.message}`));
   page.on("response", (r) => { if (r.status() >= 500) problems.push(`[http ${r.status()}] ${r.url()}`); });
@@ -57,8 +71,9 @@ Salary: $105,000 - $125,000 CAD`;
   await page.fill('input[type="password"]', "Demo1234!");
   await page.click('button[type="submit"]');
   await page.waitForURL("**/dashboard");
-  await page.getByText("Let's set up your job search").waitFor();
-  step("empty account sees the onboarding state");
+  await page.getByText("Set up your job search").waitFor();
+  await page.getByText("0 of 4 done").waitFor();
+  step("empty account sees the setup checklist");
 
   // ---- Profile ----
   await page.goto(`${BASE}/profile?tab=skills`);
@@ -74,8 +89,25 @@ Salary: $105,000 - $125,000 CAD`;
   await page.getByText("Resume added").waitFor();
   step("resume added from the profile");
 
+  // ---- CV import (rules only when AI is off: skills and languages) ----
+  await page.goto(`${BASE}/profile`);
+  await page.getByRole("button", { name: "Import from CV" }).click();
+  const cvDialog = page.getByRole("dialog", { name: "Import from your CV" });
+  await cvDialog.locator('input[type="file"]').setInputFiles({ name: "jordan-lee-cv.pdf", mimeType: "application/pdf", buffer: cvPdf });
+  const importButton = cvDialog.getByRole("button", { name: /^Import \d+ items?$/ });
+  await importButton.waitFor({ timeout: AI_TIMEOUT });
+  // Python is already in the profile: it is shown but not selected
+  assert.equal(await cvDialog.getByRole("button", { name: "Python", exact: true }).getAttribute("aria-pressed"), "false");
+  await importButton.click();
+  await cvDialog.getByText(/^Added /).waitFor();
+  await cvDialog.getByRole("button", { name: "Done" }).click();
+  await page.goto(`${BASE}/profile?tab=resumes`);
+  await page.getByText("jordan-lee-cv.pdf").waitFor();
+  step(`CV imported from a PDF and kept as a resume (${aiEnabled ? "AI" : "rules"})`);
+
   // ---- Application from a pasted posting ----
   await page.goto(`${BASE}/applications?new=1`);
+  await page.getByRole("button", { name: "Paste text" }).click();
   await page.getByLabel("Job posting", { exact: true }).fill(POSTING);
   await page.getByRole("button", { name: "Extract details" }).click();
   await page.getByText(/^Extracted with/).waitFor({ timeout: AI_TIMEOUT });
@@ -93,10 +125,15 @@ Salary: $105,000 - $125,000 CAD`;
   await page.getByText("Review before applying").waitFor();
   await page.getByText("Not found in profile").waitFor();
   step("deterministic fit score renders");
+  await page.getByText("Keywords in your CV").waitFor();
+  await page.getByText(/^3 of 4 required skills appear in your CV$/).waitFor();
+  step("posting checked against the words in the CV (AWS missing)");
 
-  await page.getByLabel("Status", { exact: true }).first().selectOption("APPLIED");
+  await page.getByRole("button", { name: /^Applied\. Move here/ }).click();
   await page.getByText("Moved to Applied").waitFor();
-  step("status changed to Applied");
+  await page.getByRole("button", { name: /^Applied \(current\)/ }).waitFor();
+  await page.getByRole("button", { name: /^Saved \(done\)/ }).waitFor();
+  step("status changed to Applied from the progress stepper");
 
   if (aiEnabled) {
     await page.getByRole("tab", { name: "Brief" }).click();
@@ -143,7 +180,7 @@ Salary: $105,000 - $125,000 CAD`;
   await page.getByRole("button", { name: "Add task" }).click();
   await page.getByText("Prepare system design notes").waitFor();
   await page.getByRole("button", { name: "Complete task" }).first().click();
-  await page.getByText("Done. Nice.").waitFor();
+  await page.getByText("Task completed").waitFor();
   step("agenda shows the interview, adds and completes tasks");
 
   // ---- Interview prep ----
@@ -186,6 +223,11 @@ Salary: $105,000 - $125,000 CAD`;
   await card.dragTo(page.getByRole("region", { name: "Recruiter contact" }));
   await page.getByText("Moved to Recruiter contact").waitFor();
   step("drag & drop moves the card");
+  await page.getByRole("button", { name: "Undo" }).click();
+  await page.getByRole("region", { name: "Applied" }).getByText("Northwind Labs").waitFor();
+  await card.dragTo(page.getByRole("region", { name: "Recruiter contact" }));
+  await page.getByRole("region", { name: "Recruiter contact" }).getByText("Northwind Labs").waitFor();
+  step("a move can be undone from the toast");
 
   // ---- Overview, analytics, assistant, search ----
   await page.goto(`${BASE}/dashboard`);
@@ -205,14 +247,28 @@ Salary: $105,000 - $125,000 CAD`;
   await page.getByText("Most requested skills").waitFor();
   step("all analytics tabs render");
 
+  // ---- Agent: opens anywhere with J; proposes changes that only happen once confirmed ----
+  await page.goto(`${BASE}/agenda`);
+  await page.getByRole("button", { name: /Ask JobPilot/ }).waitFor();
+  await page.keyboard.press("j");
+  const agentPanel = page.getByRole("complementary", { name: "JobPilot agent" });
+  await agentPanel.waitFor();
   if (aiEnabled) {
-    await page.goto(`${BASE}/assistant`);
-    await page.getByRole("button", { name: "Which applications am I waiting to hear back on?" }).click();
-    await page.getByText(/Data used for this answer/).waitFor({ timeout: AI_TIMEOUT });
-    await page.getByText("Applications (0)").waitFor();  // the only application moved to Recruiter contact
-    await shot("e2e_assistant");
-    step("assistant answers with verified sources");
+    await agentPanel.getByRole("textbox", { name: "Message to the agent" }).fill("Create a task called Send references, due 2026-11-05");
+    await page.keyboard.press("Enter");
+    const proposals = agentPanel.getByRole("group", { name: "Proposed changes" });
+    await proposals.waitFor({ timeout: AI_TIMEOUT });
+    await shot("e2e_agent_proposal");
+    await proposals.getByRole("button", { name: "Confirm" }).first().click();
+    await proposals.getByText("Done").first().waitFor();
+    await page.getByText("Send references").first().waitFor();  // the agenda refreshed by itself
+    step("agent proposes a task, which is created only after confirmation");
+  } else {
+    await agentPanel.getByText(/AI features are off/).waitFor();
   }
+  await page.keyboard.press("Escape");
+  await agentPanel.waitFor({ state: "detached" });
+  step("agent panel opens with J and closes with Escape");
 
   await page.goto(`${BASE}/dashboard`);
   await page.keyboard.press("Control+k");
@@ -227,6 +283,50 @@ Salary: $105,000 - $125,000 CAD`;
     await page.waitForURL(`**${to}`);
   }
   step("old links redirect to the merged pages");
+
+  // ---- Keyboard shortcuts, bulk actions, theme ----
+  await page.goto(`${BASE}/dashboard`);
+  await page.getByText("Upcoming interviews").waitFor();
+  await page.keyboard.press("g");
+  await page.keyboard.press("a");
+  await page.waitForURL("**/applications");
+  await page.keyboard.press("?");
+  await page.getByRole("dialog", { name: "Keyboard shortcuts" }).waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({ state: "detached" });
+  await page.keyboard.press("n");
+  await page.waitForURL("**/applications?new=1");
+  await page.getByRole("dialog").waitFor();
+  await page.keyboard.press("Escape");
+  step("keyboard shortcuts navigate, open help and the new-application form");
+
+  await page.goto(`${BASE}/applications?view=list`);
+  await page.getByRole("checkbox", { name: "Select all applications" }).check();
+  const bulk = page.getByRole("region", { name: "Bulk actions" });
+  await bulk.getByText(/^\d+ selected$/).waitFor();
+  await bulk.getByRole("button", { name: "Delete" }).click();
+  await page.getByRole("dialog", { name: /^Delete \d+ applications?\?$/ }).getByRole("button", { name: "Cancel" }).click();
+  await bulk.getByLabel("Move selected to status").selectOption("OFFER");
+  await page.getByText(/^Moved \d+ applications? to Offer$/).waitFor();
+  await bulk.waitFor({ state: "detached" });
+  await page.getByRole("combobox", { name: /^Status of / }).first().evaluate((el) => {
+    if (el.value !== "OFFER") throw new Error(`bulk move did not apply: ${el.value}`);
+  });
+  step("bulk selection moves applications; delete asks for confirmation");
+
+  await page.getByRole("button", { name: /@jobpilot\.dev/ }).click();
+  await page.getByRole("radio", { name: "Dark" }).click();
+  await page.waitForFunction(() => document.documentElement.classList.contains("dark"));
+  await page.getByRole("radio", { name: "Ocean" }).click();
+  await page.reload();
+  await page.waitForFunction(() => document.documentElement.classList.contains("dark")
+                                    && document.documentElement.dataset.accent === "ocean");
+  await shot("e2e_dark");
+  await page.goto(`${BASE}/settings`);
+  await page.getByRole("radio", { name: "Light" }).click();
+  await page.getByRole("radio", { name: "Forest" }).click();
+  await page.waitForFunction(() => !document.documentElement.classList.contains("dark"));
+  step("theme and accent switch, and survive a reload");
 
   // ---- Password change ----
   await page.goto(`${BASE}/settings`);

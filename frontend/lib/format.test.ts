@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  cn, daysUntil, formatMoney, formatSalary, initials, parseDate, pluralize, relativeTime, toDateInput,
+  cn, daysUntil, formatBytes, formatMoney, formatSalary, initials, monthRange, parseDate, pluralize, relativeTime,
+  toDateInput, yearRange,
 } from "./format";
 
 describe("parseDate", () => {
@@ -76,5 +77,27 @@ describe("cn", () => {
   it("drops falsy values and lets later Tailwind classes win", () => {
     expect(cn("w-full px-2", false, null, "w-36")).toBe("px-2 w-36");
     expect(cn("text-sm", undefined, "font-medium")).toBe("text-sm font-medium");
+  });
+});
+
+describe("monthRange and formatBytes", () => {
+  it("shows month ranges, with Present for current roles", () => {
+    expect(monthRange("2024-05-01", "2024-08-01")).toBe("May 2024 – Aug 2024");
+    expect(monthRange("2023-09-01", null)).toBe("Sep 2023 – Present");
+    expect(monthRange(null, null)).toBe("— – Present");
+  });
+  it("formats file sizes", () => {
+    expect(formatBytes(900)).toBe("900 B");
+    expect(formatBytes(146_000)).toBe("143 KB");
+    expect(formatBytes(2_621_440)).toBe("2.5 MB");
+  });
+});
+
+describe("yearRange", () => {
+  it("shows years only", () => {
+    expect(yearRange("2022-01-01", "2026-01-01")).toBe("2022 – 2026");
+    expect(yearRange("2022-09-01", null)).toBe("Since 2022");
+    expect(yearRange(null, "2020-06-01")).toBe("Until 2020");
+    expect(yearRange(null, null)).toBe("");
   });
 });

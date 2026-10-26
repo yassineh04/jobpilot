@@ -23,7 +23,7 @@ class FeedbackIn(BaseModel):
 
 
 class DraftIn(BaseModel):
-    kind: Literal["thank_you", "follow_up", "networking"]
+    kind: Literal["thank_you", "follow_up", "networking", "cover_letter"]
     contact_id: Optional[uuid.UUID] = None
     notes: str = Field(default="", max_length=500)
 

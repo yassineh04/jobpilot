@@ -85,7 +85,10 @@ export default function AgendaPage() {
     tasks.setData((list) => list?.filter((x) => x.id !== t.id) ?? null);
     try {
       await api.updateTask(t.id, { done: !t.done });
-      toast(t.done ? "Task reopened" : "Done. Nice.");
+      toast(t.done ? "Task reopened" : "Task completed", "success", {
+        label: "Undo",
+        onClick: () => api.updateTask(t.id, { done: t.done }).then(tasks.reload).catch(() => toast("Could not undo.", "error")),
+      });
     } catch {
       toast("Could not update the task.", "error");
       tasks.reload();
@@ -93,7 +96,17 @@ export default function AgendaPage() {
   };
   const remove = async (t: Task) => {
     tasks.setData((list) => list?.filter((x) => x.id !== t.id) ?? null);
-    await api.deleteTask(t.id).catch(() => { toast("Could not delete the task.", "error"); tasks.reload(); });
+    try {
+      await api.deleteTask(t.id);
+      toast("Task deleted", "success", {
+        label: "Undo",
+        onClick: () => api.createTask({ title: t.title, kind: t.kind, due_date: t.due_date, application_id: t.application_id,
+                                        contact_id: t.contact_id }).then(tasks.reload).catch(() => toast("Could not undo.", "error")),
+      });
+    } catch {
+      toast("Could not delete the task.", "error");
+      tasks.reload();
+    }
   };
 
   return (
@@ -126,7 +139,7 @@ export default function AgendaPage() {
                 const items = byDay.get(dayKey(date));
                 const inMonth = date.getMonth() === month.getMonth();
                 return (
-                  <button key={idx} onClick={() => setSelected(date)} aria-label={date.toDateString()}
+                  <button type="button" key={idx} onClick={() => setSelected(date)} aria-label={date.toDateString()}
                           aria-pressed={sameDay(date, selected)}
                           className={cn("flex h-24 min-w-0 flex-col gap-1 overflow-hidden border-b border-r border-stone-100 p-1.5 text-left transition-colors [&:nth-child(7n)]:border-r-0",
                                         sameDay(date, selected) ? "bg-accent-50/60" : "hover:bg-stone-50", !inMonth && "bg-stone-50/50")}>
@@ -143,7 +156,7 @@ export default function AgendaPage() {
                       <span className="flex items-center gap-1.5 px-0.5 text-[10px] text-stone-500">
                         {items.interviews.length > 2 && <span>+{items.interviews.length - 2}</span>}
                         {items.tasks.length > 0 && <span className="flex items-center gap-0.5"><Circle className="size-2.5" />{items.tasks.length}</span>}
-                        {items.deadlines.length > 0 && <span className="flex items-center gap-0.5 text-rose-600"><Flag className="size-2.5" />{items.deadlines.length}</span>}
+                        {items.deadlines.length > 0 && <span className="flex items-center gap-0.5 text-rose-700"><Flag className="size-2.5" />{items.deadlines.length}</span>}
                       </span>
                     )}
                   </button>
@@ -162,7 +175,7 @@ export default function AgendaPage() {
                   const app = appsById.get(i.application_id);
                   return (
                     <li key={i.id}>
-                      <button onClick={() => setEditing(i)} className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-stone-50">
+                      <button type="button" onClick={() => setEditing(i)} className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-stone-50">
                         <span className="w-16 shrink-0 text-xs font-medium tabular-nums text-stone-700">{formatTime(i.scheduled_at)}</span>
                         <span className="min-w-0 flex-1 text-[13px]">
                           <span className="block truncate font-medium text-stone-900">{i.interview_type || "Interview"} · {app?.company_name}</span>
@@ -175,7 +188,7 @@ export default function AgendaPage() {
                 })}
                 {day.deadlines.map((a) => (
                   <li key={a.id} className="flex items-center gap-3 px-4 py-2.5 text-[13px]">
-                    <Flag className="size-3.5 shrink-0 text-rose-600" />
+                    <Flag className="size-3.5 shrink-0 text-rose-700" />
                     <Link href={`/applications/${a.id}`} className="min-w-0 flex-1 truncate text-stone-900 hover:underline">
                       Application deadline · {a.position_title} at {a.company_name}
                     </Link>
@@ -210,13 +223,13 @@ export default function AgendaPage() {
               {groups.map(([label, items]) => (
                 <section key={label}>
                   <h3 className={cn("bg-stone-50/70 px-4 py-1.5 text-[11px] font-medium uppercase tracking-wide",
-                                    label === "Overdue" ? "text-rose-600" : "text-stone-500")}>
+                                    label === "Overdue" ? "text-rose-700" : "text-stone-500")}>
                     {label} · {items.length}
                   </h3>
                   <ul className="divide-y divide-stone-100">
                     {items.map((t) => (
                       <li key={t.id} className="group flex items-start gap-2.5 px-4 py-2.5">
-                        <button onClick={() => toggle(t)} aria-label={t.done ? "Reopen task" : "Complete task"}
+                        <button type="button" onClick={() => toggle(t)} aria-label={t.done ? "Reopen task" : "Complete task"}
                                 className={cn("mt-px", t.done ? "text-accent-600" : "text-stone-500 hover:text-accent-600")}>
                           {t.done ? <Check className="size-4" /> : <Circle className="size-4" />}
                         </button>
@@ -233,11 +246,11 @@ export default function AgendaPage() {
                           </p>
                         </div>
                         {t.due_date && (
-                          <span className={cn("shrink-0 text-xs tabular-nums", !t.done && daysUntil(t.due_date) < 0 ? "text-rose-600" : "text-stone-500")}>
+                          <span className={cn("shrink-0 text-xs tabular-nums", !t.done && daysUntil(t.due_date) < 0 ? "text-rose-700" : "text-stone-500")}>
                             {formatShortDate(t.due_date)}
                           </span>
                         )}
-                        <IconButton label="Delete task" onClick={() => remove(t)} className="-my-1 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-rose-600">
+                        <IconButton label="Delete task" onClick={() => remove(t)} className="-my-1 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-rose-700">
                           <Trash2 className="size-3.5" />
                         </IconButton>
                       </li>

@@ -146,7 +146,7 @@ export function PracticePanel({ initialAppId }: { initialAppId?: string | null }
             <ol className="divide-y divide-stone-100">
               {questions.map((q, i) => (
                 <li key={q.question}>
-                  <button onClick={() => pick(q)} aria-current={current === q}
+                  <button type="button" onClick={() => pick(q)} aria-current={current === q}
                           className={cn("flex w-full gap-3 px-4 py-2.5 text-left text-[13px]", current === q ? "bg-accent-50/70" : "hover:bg-stone-50")}>
                     <span className="tabular-nums text-stone-500">{i + 1}</span>
                     <span className="min-w-0 flex-1">

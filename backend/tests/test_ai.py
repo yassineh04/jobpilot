@@ -34,6 +34,21 @@ def test_ai_config_per_provider(monkeypatch, provider, key, enabled):
     assert (ai_config() is not None) is enabled
 
 
+def test_misconfigured_provider_explains_itself_in_the_logs(monkeypatch, caplog):
+    monkeypatch.setattr(settings, "AI_PROVIDER", "grok")  # common typo for groq
+    monkeypatch.setattr(settings, "AI_API_KEY", "k")
+    with caplog.at_level("WARNING", logger="app.ai"):
+        assert ai_config() is None
+    assert "unknown AI_PROVIDER='grok'" in caplog.text and "groq" in caplog.text
+
+    caplog.clear()
+    monkeypatch.setattr(settings, "AI_PROVIDER", "gemini")
+    monkeypatch.setattr(settings, "AI_API_KEY", "")
+    with caplog.at_level("WARNING", logger="app.ai"):
+        assert ai_config() is None
+    assert "needs AI_API_KEY" in caplog.text
+
+
 def test_ai_config_defaults_and_overrides(monkeypatch):
     monkeypatch.setattr(settings, "AI_PROVIDER", "ollama")
     cfg = ai_config()
@@ -261,6 +276,18 @@ def test_draft_is_written_as_the_candidate(client, fake_ai):
     prompt = fake_ai.prompt()
     assert "RECIPIENT (greet this person, never the sender): Sarah Lavoie, Recruiter" in prompt
     assert "SENDER" in prompt
+
+
+def test_cover_letter_uses_profile_evidence_and_the_posting(client, fake_ai):
+    headers, app = _alex_with_application(client)
+    client.post("/profile/experiences", headers=headers, json={
+        "company": "Lightspeed", "title": "Developer Intern", "achievements": "- Cut API latency by 38%"})
+    fake_ai.reply({"subject": "Application: Backend Developer", "body": "Dear [Hiring manager], ..."})
+    body = client.post(f"/ai/applications/{app['id']}/draft", headers=headers, json={"kind": "cover_letter"}).json()
+    assert body["subject"] == "Application: Backend Developer"
+    prompt = fake_ai.prompt()
+    assert "Developer Intern at Lightspeed: Cut API latency by 38%" in prompt
+    assert "<posting>" in prompt and "cover letter" in prompt
 
 
 def test_draft_rejects_unknown_kind_and_foreign_contact(client, fake_ai):

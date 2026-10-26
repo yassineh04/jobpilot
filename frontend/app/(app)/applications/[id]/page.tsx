@@ -7,17 +7,21 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import {
-  EMPLOYMENT_LABELS, EVENT_LABELS, REJECTION_LABELS, SENIORITY_LABELS, STATUS_META, STATUSES, WORK_MODE_LABELS,
+  EMPLOYMENT_LABELS, EVENT_LABELS, REJECTION_LABELS, SENIORITY_LABELS, STATUS_META, STATUSES, placeLabel,
 } from "@/lib/constants";
-import { cn, formatDate, formatDateTime, formatSalary, formatShortDate, relativeTime } from "@/lib/format";
+import { cn, formatDate, formatDateTime, formatSalary, formatShortDate, parseDate, relativeTime } from "@/lib/format";
 import { useAsync } from "@/lib/use-async";
-import type { Application, Interview, Status } from "@/lib/types";
+import type { AppEvent, Application, Interview, Status } from "@/lib/types";
 import { ApplicationForm } from "@/components/applications/ApplicationForm";
 import { InterviewForm } from "@/components/applications/InterviewForm";
+import { AddToCalendar } from "@/components/applications/AddToCalendar";
+import { CvCheck } from "@/components/applications/CvCheck";
 import { MatchReview } from "@/components/applications/MatchReview";
+import { StatusStepper } from "@/components/applications/StatusStepper";
 import { BriefPanel } from "@/components/ai/BriefPanel";
 import { DraftDialog } from "@/components/ai/DraftDialog";
 import { Button, ButtonLink, IconButton } from "@/components/ui/Button";
+import { CompanyAvatar } from "@/components/ui/CompanyAvatar";
 import { controlClass } from "@/components/ui/Field";
 import { ConfirmDialog } from "@/components/ui/Modal";
 import {
@@ -93,9 +97,12 @@ function Interviews({ app, onChange }: { app: Application; onChange: () => void 
                 {i.notes && <p className="mt-1.5 whitespace-pre-line text-xs text-stone-600">{i.notes}</p>}
                 {i.follow_up && <p className="mt-1 text-xs text-stone-500">Follow-up: {i.follow_up}</p>}
               </div>
-              <IconButton label="Edit interview" className="opacity-0 group-hover:opacity-100 focus:opacity-100" onClick={() => setEditing(i)}>
-                <Pencil className="size-3.5" />
-              </IconButton>
+              <div className="flex shrink-0 items-center gap-1">
+                {parseDate(i.scheduled_at) > new Date() && <AddToCalendar interview={i} app={app} />}
+                <IconButton label="Edit interview" className="opacity-0 group-hover:opacity-100 focus:opacity-100" onClick={() => setEditing(i)}>
+                  <Pencil className="size-3.5" />
+                </IconButton>
+              </div>
             </li>
           ))}
         </ul>
@@ -108,10 +115,9 @@ function Interviews({ app, onChange }: { app: Application; onChange: () => void 
   );
 }
 
-function History({ appId }: { appId: string }) {
-  const { data, loading, error } = useAsync(() => api.applicationEvents(appId), [appId]);
-  if (loading && !data) return <Skeleton className="h-40" />;
+function History({ data, error }: { data: AppEvent[] | null; error: string | null }) {
   if (error) return <ErrorBanner message={error} />;
+  if (!data) return <Skeleton className="h-40" />;
   return (
     <Card>
       <CardHeader title="History" description="Recorded automatically when the application changes" />
@@ -164,7 +170,7 @@ function SideTasks({ app }: { app: Application }) {
       <ul className="divide-y divide-stone-100">
         {mine.map((t) => (
           <li key={t.id} className="flex items-start gap-2.5 px-4 py-2 text-[13px]">
-            <button onClick={() => toggle(t.id, !t.done)} aria-label={t.done ? "Mark as open" : "Mark as done"}
+            <button type="button" onClick={() => toggle(t.id, !t.done)} aria-label={t.done ? "Mark as open" : "Mark as done"}
                     className={cn("mt-px", t.done ? "text-accent-600" : "text-stone-500 hover:text-accent-600")}>
               {t.done ? <Check className="size-4" /> : <Circle className="size-4" />}
             </button>
@@ -193,6 +199,7 @@ export default function ApplicationDetailPage({ params }: { params: Promise<{ id
   const [deleting, setDeleting] = useState(false);
   const { data: app, setData: setApp, error, loading, reload } = useAsync(() => api.getApplication(id), [id]);
   const { data: contacts } = useAsync(() => api.applicationContacts(id), [id]);
+  const { data: events, error: eventsError, reload: reloadEvents } = useAsync(() => api.applicationEvents(id), [id]);
   const { data: resumes } = useAsync(() => api.listResumes(), []);
 
   if (loading && !app) return <div className="space-y-4"><Skeleton className="h-10 w-80" /><Skeleton className="h-96" /></div>;
@@ -208,9 +215,15 @@ export default function ApplicationDetailPage({ params }: { params: Promise<{ id
 
   const changeStatus = async (status: Status) => {
     if (status === "REJECTED") return setEditing("REJECTED");
+    const before = { status: app.status, applied_date: app.applied_date ?? null };
     try {
       setApp(await api.updateApplication(app.id, { status }));
-      toast(`Moved to ${STATUS_META[status].label}`);
+      reloadEvents();
+      toast(`Moved to ${STATUS_META[status].label}`, "success", {
+        label: "Undo",
+        onClick: () => api.updateApplication(app.id, before).then((restored) => { setApp(restored); reloadEvents(); })
+          .catch(() => toast("Could not undo the change.", "error")),
+      });
     } catch (err) {
       toast(err instanceof Error ? err.message : "Could not update the status.", "error");
     }
@@ -237,13 +250,14 @@ export default function ApplicationDetailPage({ params }: { params: Promise<{ id
       </Link>
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight text-stone-900">{app.position_title}</h1>
-          <p className="mt-1 text-sm text-stone-500">
-            {app.company_name}
-            {app.location && ` · ${app.location}`}
-            {app.work_mode && ` · ${WORK_MODE_LABELS[app.work_mode]}`}
-          </p>
+        <div className="flex min-w-0 items-center gap-3.5">
+          <CompanyAvatar name={app.company_name} size="lg" />
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold tracking-tight text-stone-900">{app.position_title}</h1>
+            <p className="mt-0.5 text-sm text-stone-500">
+              {[app.company_name, placeLabel(app.location, app.work_mode)].filter(Boolean).join(" · ")}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <select value={app.status} onChange={(e) => changeStatus(e.target.value as Status)} aria-label="Status"
@@ -252,10 +266,14 @@ export default function ApplicationDetailPage({ params }: { params: Promise<{ id
           </select>
           <Button icon={<Mail className="size-3.5" />} onClick={() => setDrafting(true)}>Draft message</Button>
           <Button icon={<Pencil className="size-3.5" />} onClick={() => setEditing("edit")}>Edit</Button>
-          <IconButton label="Delete application" onClick={() => setConfirmDelete(true)} className="size-8.5 hover:text-rose-600">
+          <IconButton label="Delete application" onClick={() => setConfirmDelete(true)} className="size-8.5 hover:text-rose-700">
             <Trash2 className="size-4" />
           </IconButton>
         </div>
+      </div>
+
+      <div className="mb-6">
+        <StatusStepper status={app.status} events={events} onChange={changeStatus} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
@@ -293,9 +311,14 @@ export default function ApplicationDetailPage({ params }: { params: Promise<{ id
             </div>
           )}
           {tab === "brief" && <BriefPanel app={app} onEdit={() => setEditing("edit")} />}
-          {tab === "match" && <MatchReview applicationId={app.id} />}
+          {tab === "match" && (
+            <div className="space-y-4">
+              <MatchReview applicationId={app.id} />
+              <CvCheck applicationId={app.id} />
+            </div>
+          )}
           {tab === "interviews" && <Interviews app={app} onChange={reload} />}
-          {tab === "history" && <History appId={app.id} />}
+          {tab === "history" && <History data={events} error={eventsError} />}
         </div>
 
         <aside className="space-y-4">
@@ -348,7 +371,7 @@ export default function ApplicationDetailPage({ params }: { params: Promise<{ id
       {editing && (
         <ApplicationForm application={app} initialStatus={editing === "edit" ? undefined : editing}
                          onClose={() => setEditing(null)}
-                         onSaved={(saved) => { setApp(saved); setEditing(null); }} />
+                         onSaved={(saved) => { setApp(saved); setEditing(null); reloadEvents(); }} />
       )}
       {drafting && <DraftDialog app={app} onClose={() => setDrafting(false)} />}
       {confirmDelete && (

@@ -106,3 +106,27 @@ def test_analytics_overview_includes_timing_and_breakdowns(client):
     sources = {b["label"]: b for b in data["breakdowns"]["source"]}
     assert sources["LinkedIn"]["applications"] == 2 and sources["LinkedIn"]["response_rate"] == 100.0
     assert data["timing"]["first_response"]["n"] == 3
+
+
+def test_dashboard_trend_and_badges(client):
+    headers = auth_headers(client)
+    a = create_application(client, headers, status="APPLIED")
+    client.patch(f"/applications/{a['id']}", json={"status": "RECRUITER_CONTACT"}, headers=headers)
+    create_application(client, headers, company_name="Saved Co")
+    client.post("/tasks/", headers=headers, json={"title": "Overdue", "due_date": "2020-01-01"})
+    client.post("/tasks/", headers=headers, json={"title": "Later", "due_date": "2999-01-01"})
+    client.post("/contacts/", headers=headers, json={"name": "Due", "next_follow_up_at": "2020-01-01"})
+    client.post(f"/applications/{a['id']}/interviews", headers=headers,
+                json={"scheduled_at": (datetime.utcnow() + timedelta(days=2)).isoformat()})
+
+    data = client.get("/dashboard/summary", headers=headers).json()
+    assert len(data["trend"]) == 8
+    this_week = data["trend"][-1]
+    assert this_week == {**this_week, "applied": 1, "responses": 1, "saved": 2}
+    assert data["kpis"]["applied_this_week"] == this_week["applied"]
+    assert data["kpis"]["applied_previous_week"] == 0
+
+    badges = client.get("/dashboard/badges", headers=headers).json()
+    assert badges == {"agenda": 2, "contacts": 1, "tasks_due": 1, "interviews_next_7_days": 1}
+    other = auth_headers(client, "other@x.com")
+    assert client.get("/dashboard/badges", headers=other).json()["agenda"] == 0

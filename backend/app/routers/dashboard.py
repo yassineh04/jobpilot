@@ -11,6 +11,7 @@ from app import models
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
+TREND_WEEKS = 8
 CLOSED = {models.ApplicationStatus.REJECTED, models.ApplicationStatus.WITHDRAWN,
           models.ApplicationStatus.OFFER}
 NOT_SUBMITTED = {models.ApplicationStatus.SAVED, models.ApplicationStatus.PREPARING}
@@ -68,6 +69,24 @@ def summary(db: Session = Depends(get_db), user: models.User = Depends(get_curre
     deadlines = sorted((a for a in apps if a.deadline and a.deadline >= today
                         and a.status in NOT_SUBMITTED), key=lambda a: a.deadline)[:5]
 
+    # Weekly activity over the last 8 rolling weeks (oldest first), for sparklines and deltas
+    start = now - timedelta(days=7 * TREND_WEEKS)
+    recent_events = (db.query(models.ApplicationEvent.occurred_at, models.ApplicationEvent.to_status)
+                     .join(models.Application)
+                     .filter(models.Application.owner_id == user.id,
+                             models.ApplicationEvent.occurred_at >= start).all())
+    trend = []
+    for i in range(TREND_WEEKS):
+        week_start = start + timedelta(days=7 * i)
+        week_end = week_start + timedelta(days=7)
+        trend.append({
+            "week_start": week_start.date().isoformat(),
+            "applied": sum(1 for a in apps if a.applied_date and week_start <= a.applied_date < week_end),
+            "responses": sum(1 for occurred, status in recent_events
+                             if status and status.value in RESPONSE_STATUSES and week_start <= occurred < week_end),
+            "saved": sum(1 for a in apps if a.date_saved and week_start <= a.date_saved < week_end),
+        })
+
     return {
         "user_name": user.full_name or user.email.split("@")[0],
         "kpis": {
@@ -78,7 +97,9 @@ def summary(db: Session = Depends(get_db), user: models.User = Depends(get_curre
                                      if a.applied_date and a.applied_date >= now - timedelta(days=7)),
             "response_rate": round(len(responded) / len(submitted) * 100, 1) if submitted else None,
             "submitted": len(submitted),
+            "applied_previous_week": trend[-2]["applied"] if len(trend) > 1 else 0,
         },
+        "trend": trend,
         "pipeline": [{"status": s.value, "count": status_counts.get(s.value, 0)}
                      for s in models.ApplicationStatus],
         "upcoming_interviews": [{
@@ -112,3 +133,22 @@ def summary(db: Session = Depends(get_db), user: models.User = Depends(get_curre
         "has_profile": db.query(func.count(models.Skill.id))
                          .filter(models.Skill.owner_id == user.id).scalar() > 0,
     }
+
+
+@router.get("/badges")
+def badges(db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """Small counters for the navigation, cheap enough to refresh on every page focus."""
+    today = date.today()
+    now = datetime.utcnow()
+    tasks_due = (db.query(func.count(models.Task.id))
+                 .filter(models.Task.owner_id == user.id, models.Task.completed_at.is_(None),
+                         models.Task.due_date <= today).scalar())
+    contacts_due = (db.query(func.count(models.Contact.id))
+                    .filter(models.Contact.owner_id == user.id,
+                            models.Contact.next_follow_up_at <= today).scalar())
+    interviews_soon = (db.query(func.count(models.Interview.id)).join(models.Application)
+                       .filter(models.Application.owner_id == user.id,
+                               models.Interview.scheduled_at >= now,
+                               models.Interview.scheduled_at <= now + timedelta(days=7)).scalar())
+    return {"agenda": tasks_due + interviews_soon, "contacts": contacts_due,
+            "tasks_due": tasks_due, "interviews_next_7_days": interviews_soon}

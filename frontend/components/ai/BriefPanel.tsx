@@ -54,7 +54,7 @@ export function BriefPanel({ app, onEdit }: { app: Application; onEdit: () => vo
           {!status.enabled && <AiNotConfigured />}
           {status.enabled && !hasPosting && (
             <p className="text-center text-[13px] text-stone-500">
-              Add the job description first. <button onClick={onEdit} className="font-medium text-accent-700 underline decoration-accent-300 underline-offset-2 hover:decoration-accent-700">Edit the application</button>
+              Add the job description first. <button type="button" onClick={onEdit} className="font-medium text-accent-700 underline decoration-accent-300 underline-offset-2 hover:decoration-accent-700">Edit the application</button>
             </p>
           )}
           <AiWaiting running={running} local={status.local} what="Reading the posting and checking every quote" />

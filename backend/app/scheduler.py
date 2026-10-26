@@ -40,7 +40,7 @@ def check_upcoming_interviews():
         db.commit()
     finally:
         db.close()
-        
+
 def start_scheduler():
     scheduler.add_job(check_upcoming_interviews, 'interval', hours=1)
     scheduler.start()

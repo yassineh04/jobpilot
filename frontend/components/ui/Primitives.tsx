@@ -83,7 +83,7 @@ export function ErrorBanner({ message, onRetry }: { message: string; onRetry?: (
   return (
     <div role="alert" className="flex items-center justify-between gap-3 rounded-md border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-[13px] text-rose-800">
       <span className="flex items-center gap-2"><AlertCircle className="size-4 shrink-0" />{message}</span>
-      {onRetry && <button onClick={onRetry} className="font-medium underline-offset-2 hover:underline">Retry</button>}
+      {onRetry && <button type="button" onClick={onRetry} className="font-medium underline-offset-2 hover:underline">Retry</button>}
     </div>
   );
 }
@@ -129,7 +129,7 @@ export function Tabs<T extends string>({ tabs, value, onChange, className }: {
   return (
     <div role="tablist" className={cn("flex gap-5 overflow-x-auto border-b border-stone-200", className)}>
       {tabs.map((t) => (
-        <button key={t.id} role="tab" aria-selected={value === t.id} onClick={() => onChange(t.id)}
+        <button type="button" key={t.id} role="tab" aria-selected={value === t.id} onClick={() => onChange(t.id)}
                 className={cn("-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 pb-2.5 pt-1 text-[13px] font-medium transition-colors",
                               value === t.id ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-800")}>
           {t.label}
@@ -146,7 +146,7 @@ export function SegmentedControl<T extends string>({ options, value, onChange }:
   return (
     <div className="inline-flex rounded-md border border-stone-300 bg-white p-0.5">
       {options.map((o) => (
-        <button key={o.id} onClick={() => onChange(o.id)} aria-pressed={value === o.id}
+        <button key={o.id} type="button" onClick={() => onChange(o.id)} aria-pressed={value === o.id}
                 className={cn("inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-[13px] font-medium transition-colors",
                               value === o.id ? "bg-stone-900 text-white" : "text-stone-600 hover:text-stone-900")}>
           {o.icon}{o.label}

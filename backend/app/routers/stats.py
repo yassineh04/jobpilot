@@ -1,4 +1,4 @@
-from collections import Counter, defaultdict 
+from collections import Counter, defaultdict
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -15,7 +15,7 @@ def get_stats(db: Session = Depends(get_db),
               current_user: models.User = Depends(get_current_user)):
     apps = db.query(models.Application).filter(
         models.Application.owner_id == current_user.id).all()
-    
+
     PROGRESSED_STATUSES = {
         models.ApplicationStatus.RECRUITER_CONTACT,
         models.ApplicationStatus.ASSESSMENT,

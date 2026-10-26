@@ -1,12 +1,12 @@
 "use client";
-/* eslint-disable @typescript-eslint/no-explicit-any -- profile entities are loosely typed API payloads */
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Check, Circle, ExternalLink, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Check, Circle, ExternalLink, FileUp, Pencil, Plus, Trash2, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { EMPLOYMENT_LABELS, WORK_MODE_LABELS, enumOptions } from "@/lib/constants";
-import { cn, formatDate } from "@/lib/format";
+import { cn, monthRange, yearRange } from "@/lib/format";
 import { useAsync } from "@/lib/use-async";
+import type { Education, EvidenceConfidence, EvidenceType, Experience, LanguageProficiency, Preferences, Project, Skill, SkillProficiency } from "@/lib/types";
 import { Button, IconButton } from "@/components/ui/Button";
 import { FormError, Input, Select, Textarea } from "@/components/ui/Field";
 import { ConfirmDialog, Modal } from "@/components/ui/Modal";
@@ -14,6 +14,7 @@ import {
   Badge, Card, CardHeader, EmptyState, ErrorBanner, Meter, Note, PageHeader, Skeleton, Tabs,
 } from "@/components/ui/Primitives";
 import { useToast } from "@/components/ui/Toast";
+import { CvImportDialog } from "@/components/profile/CvImport";
 import { ResumesPanel } from "@/components/profile/ResumesPanel";
 
 type Tab = "overview" | "experience" | "education" | "projects" | "skills" | "languages" | "preferences" | "resumes";
@@ -24,10 +25,10 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "preferences", label: "Preferences" }, { id: "resumes", label: "Resumes" },
 ];
 
-const PROFICIENCY = { BEGINNER: "Beginner", INTERMEDIATE: "Intermediate", ADVANCED: "Advanced", EXPERT: "Expert" };
-const LANG_PROFICIENCY = { BASIC: "Basic", CONVERSATIONAL: "Conversational", FLUENT: "Fluent", NATIVE: "Native" };
-const EVIDENCE_TYPES = { EXPERIENCE: "Work experience", PROJECT: "Project", EDUCATION: "Education", CERTIFICATION: "Certification", OTHER: "Other" };
-const CONFIDENCE = { LOW: "Low", MEDIUM: "Medium", HIGH: "High" };
+const PROFICIENCY: Record<SkillProficiency, string> = { BEGINNER: "Beginner", INTERMEDIATE: "Intermediate", ADVANCED: "Advanced", EXPERT: "Expert" };
+const LANG_PROFICIENCY: Record<LanguageProficiency, string> = { BASIC: "Basic", CONVERSATIONAL: "Conversational", FLUENT: "Fluent", NATIVE: "Native" };
+const EVIDENCE_TYPES: Record<EvidenceType, string> = { EXPERIENCE: "Work experience", PROJECT: "Project", EDUCATION: "Education", CERTIFICATION: "Certification", OTHER: "Other" };
+const CONFIDENCE: Record<EvidenceConfidence, string> = { LOW: "Low", MEDIUM: "Medium", HIGH: "High" };
 
 function useSaver() {
   const toast = useToast();
@@ -104,7 +105,7 @@ function Collection<T extends { id: string }>({ title, description, load, remove
               <div className="min-w-0 flex-1">{renderItem(item)}</div>
               <div className="flex shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                 <IconButton label="Edit" onClick={() => setEditing(item)}><Pencil className="size-3.5" /></IconButton>
-                <IconButton label="Delete" onClick={() => setDeleting(item)} className="hover:text-rose-600"><Trash2 className="size-3.5" /></IconButton>
+                <IconButton label="Delete" onClick={() => setDeleting(item)} className="hover:text-rose-700"><Trash2 className="size-3.5" /></IconButton>
               </div>
             </li>
           ))}
@@ -117,11 +118,8 @@ function Collection<T extends { id: string }>({ title, description, load, remove
   );
 }
 
-const range = (start?: string | null, end?: string | null) =>
-  `${start ? formatDate(start, { day: undefined }) : "—"} – ${end ? formatDate(end, { day: undefined }) : "Present"}`;
-
 // ---------------- Experience / Education / Projects ----------------
-function ExperienceForm({ item, onClose, onSaved }: { item?: any; onClose: () => void; onSaved: () => void }) {
+function ExperienceForm({ item, onClose, onSaved }: { item?: Experience; onClose: () => void; onSaved: () => void }) {
   const { saving, error, setError, run } = useSaver();
   const [f, setF] = useState({ company: item?.company ?? "", title: item?.title ?? "", start_date: item?.start_date ?? "",
                                end_date: item?.end_date ?? "", description: item?.description ?? "", achievements: item?.achievements ?? "" });
@@ -146,7 +144,7 @@ function ExperienceForm({ item, onClose, onSaved }: { item?: any; onClose: () =>
   );
 }
 
-function EducationForm({ item, onClose, onSaved }: { item?: any; onClose: () => void; onSaved: () => void }) {
+function EducationForm({ item, onClose, onSaved }: { item?: Education; onClose: () => void; onSaved: () => void }) {
   const { saving, error, setError, run } = useSaver();
   const [f, setF] = useState({ institution: item?.institution ?? "", degree: item?.degree ?? "", field: item?.field ?? "",
                                start_date: item?.start_date ?? "", end_date: item?.end_date ?? "", gpa: item?.gpa?.toString() ?? "" });
@@ -172,7 +170,7 @@ function EducationForm({ item, onClose, onSaved }: { item?: any; onClose: () => 
   );
 }
 
-function ProjectForm({ item, onClose, onSaved }: { item?: any; onClose: () => void; onSaved: () => void }) {
+function ProjectForm({ item, onClose, onSaved }: { item?: Project; onClose: () => void; onSaved: () => void }) {
   const { saving, error, setError, run } = useSaver();
   const [f, setF] = useState({ name: item?.name ?? "", description: item?.description ?? "",
                                repository_url: item?.repository_url ?? "", demo_url: item?.demo_url ?? "" });
@@ -201,14 +199,15 @@ function SkillsTab() {
   const { data: skills, error, loading, reload } = useAsync(() => api.listSkills(), []);
   const { data: sources } = useAsync(() => Promise.all([api.listExperiences(), api.listProjects(), api.listEducation()]), []);
   const [adding, setAdding] = useState(false);
-  const [evidenceFor, setEvidenceFor] = useState<any>(null);
-  const [deleting, setDeleting] = useState<any>(null);
+  const [evidenceFor, setEvidenceFor] = useState<Skill | null>(null);
+  const [deleting, setDeleting] = useState<Skill | null>(null);
 
   const removeEvidence = async (skillId: string, evidenceId: string) => {
     await api.deleteSkillEvidence(skillId, evidenceId).catch(() => toast("Could not remove the evidence.", "error"));
     reload();
   };
   const removeSkill = async () => {
+    if (!deleting) return;
     await api.deleteSkill(deleting.id).catch(() => toast("Could not delete the skill.", "error"));
     setDeleting(null);
     reload();
@@ -224,37 +223,37 @@ function SkillsTab() {
         <EmptyState title="No skills yet">Add a skill, then attach evidence: an internship, a project, a course or a certification.</EmptyState>
       ) : (
         <ul className="divide-y divide-stone-100">
-          {skills?.map((s: any) => (
+          {skills?.map((s) => (
             <li key={s.id} className="group px-4 py-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[13px] font-semibold text-stone-900">{s.name}</span>
                   {s.category && <Badge>{s.category}</Badge>}
                   <span className="text-xs text-stone-500">
-                    {s.proficiency ? PROFICIENCY[s.proficiency as keyof typeof PROFICIENCY] : "Not self-rated"}
+                    {s.proficiency ? PROFICIENCY[s.proficiency] : "Not self-rated"}
                     {s.years_experience ? ` · ${s.years_experience} yr${s.years_experience === 1 ? "" : "s"}` : ""}
                   </span>
                   {s.evidences.length === 0 && <Badge tone="bg-amber-50 text-amber-800">No evidence</Badge>}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => setEvidenceFor(s)}>Evidence</Button>
-                  <IconButton label="Delete skill" onClick={() => setDeleting(s)} className="opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-rose-600">
+                  <IconButton label="Delete skill" onClick={() => setDeleting(s)} className="opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-rose-700">
                     <Trash2 className="size-3.5" />
                   </IconButton>
                 </div>
               </div>
               {s.evidences.length > 0 && (
                 <ul className="mt-2 space-y-1">
-                  {s.evidences.map((ev: any) => (
+                  {s.evidences.map((ev) => (
                     <li key={ev.id} className="group/ev flex items-start gap-2 text-xs text-stone-600">
                       <span className="mt-0.5 text-stone-500">↳</span>
                       <span className="flex-1">
-                        <span className="font-medium text-stone-700">{EVIDENCE_TYPES[ev.evidence_type as keyof typeof EVIDENCE_TYPES]}</span>
+                        <span className="font-medium text-stone-700">{EVIDENCE_TYPES[ev.evidence_type]}</span>
                         {" · "}{ev.description}
-                        <span className="text-stone-500"> · {CONFIDENCE[ev.confidence as keyof typeof CONFIDENCE].toLowerCase()} confidence</span>
+                        <span className="text-stone-500"> · {CONFIDENCE[ev.confidence].toLowerCase()} confidence</span>
                       </span>
-                      <button onClick={() => removeEvidence(s.id, ev.id)} aria-label="Remove evidence"
-                              className="text-stone-300 opacity-0 hover:text-rose-600 group-hover/ev:opacity-100 focus:opacity-100">
+                      <button type="button" onClick={() => removeEvidence(s.id, ev.id)} aria-label="Remove evidence"
+                              className="text-stone-300 opacity-0 hover:text-rose-700 group-hover/ev:opacity-100 focus:opacity-100">
                         <X className="size-3.5" />
                       </button>
                     </li>
@@ -302,7 +301,7 @@ function SkillForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => v
 }
 
 function EvidenceForm({ skill, experiences, projects, education, onClose, onSaved }: {
-  skill: any; experiences: any[]; projects: any[]; education: any[]; onClose: () => void; onSaved: () => void;
+  skill: Skill; experiences: Experience[]; projects: Project[]; education: Education[]; onClose: () => void; onSaved: () => void;
 }) {
   const { saving, error, setError, run } = useSaver();
   const [f, setF] = useState({ evidence_type: experiences.length ? "EXPERIENCE" : projects.length ? "PROJECT" : "OTHER",
@@ -360,11 +359,11 @@ function LanguagesTab() {
       <CardHeader title="Languages" />
       <div className="flex flex-wrap gap-2 p-4">
         {data?.length === 0 && <p className="text-[13px] text-stone-500">No languages yet.</p>}
-        {data?.map((l: any) => (
+        {data?.map((l) => (
           <span key={l.id} className="inline-flex items-center gap-2 rounded-md border border-stone-200 py-1 pl-2.5 pr-1 text-[13px]">
-            {l.language} <span className="text-xs text-stone-500">{LANG_PROFICIENCY[l.proficiency as keyof typeof LANG_PROFICIENCY]}</span>
-            <button aria-label={`Remove ${l.language}`} onClick={() => api.deleteLanguage(l.id).then(reload)}
-                    className="rounded p-0.5 text-stone-500 hover:bg-stone-100 hover:text-rose-600"><X className="size-3.5" /></button>
+            {l.language} <span className="text-xs text-stone-500">{LANG_PROFICIENCY[l.proficiency]}</span>
+            <button type="button" aria-label={`Remove ${l.language}`} onClick={() => api.deleteLanguage(l.id).then(reload)}
+                    className="rounded p-0.5 text-stone-500 hover:bg-stone-100 hover:text-rose-700"><X className="size-3.5" /></button>
           </span>
         ))}
       </div>
@@ -384,7 +383,7 @@ function PreferencesTab() {
   return <PreferencesForm initial={data} />;
 }
 
-function PreferencesForm({ initial }: { initial: any }) {
+function PreferencesForm({ initial }: { initial: Preferences }) {
   const { saving, error, run } = useSaver();
   const [f, setF] = useState({
     remote_preference: initial.remote_preference ?? "", desired_employment_type: initial.desired_employment_type ?? "",
@@ -445,7 +444,7 @@ function Overview({ goTo }: { goTo: (tab: Tab) => void }) {
           </EmptyState>
         ) : (
           <ul className="divide-y divide-stone-100">
-            {data.categories.map((c: any) => (
+            {data.categories.map((c) => (
               <li key={c.category} className="px-4 py-3">
                 <div className="mb-1.5 flex items-baseline justify-between text-[13px]">
                   <span className="font-medium text-stone-900">{c.category}</span>
@@ -453,7 +452,7 @@ function Overview({ goTo }: { goTo: (tab: Tab) => void }) {
                 </div>
                 <Meter value={(c.evidenced / c.skills.length) * 100} />
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  {c.skills.map((s: any) => (
+                  {c.skills.map((s) => (
                     <span key={s.name} title={`${s.evidence_count} evidence item(s)`}
                           className={cn("rounded px-1.5 py-0.5 text-xs", s.evidence_count ? "bg-accent-50 text-accent-800" : "border border-dashed border-stone-300 text-stone-500")}>
                       {s.name}{s.evidence_count > 1 && <span className="ml-1 text-accent-700">×{s.evidence_count}</span>}
@@ -471,9 +470,9 @@ function Overview({ goTo }: { goTo: (tab: Tab) => void }) {
           <CardHeader title="Profile completeness" description={`${data.completeness}% of the basics`} />
           <div className="px-4 pt-3"><Meter value={data.completeness} /></div>
           <ul className="space-y-0.5 p-2">
-            {data.checklist.map((c: any) => (
+            {data.checklist.map((c) => (
               <li key={c.key}>
-                <button onClick={() => goTo(tabFor[c.key])} className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-left text-[13px] hover:bg-stone-50">
+                <button type="button" onClick={() => goTo(tabFor[c.key])} className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-left text-[13px] hover:bg-stone-50">
                   {c.done ? <Check className="size-4 text-accent-600" /> : <Circle className="size-4 text-stone-300" />}
                   <span className={c.done ? "text-stone-500" : "text-stone-900"}>{c.label}</span>
                 </button>
@@ -494,20 +493,23 @@ function Overview({ goTo }: { goTo: (tab: Tab) => void }) {
 function ProfileInner() {
   const router = useRouter();
   const params = useSearchParams();
+  const [importing, setImporting] = useState(params.get("import") === "cv");
   const tab = (TABS.some((t) => t.id === params.get("tab")) ? params.get("tab") : "overview") as Tab;
   const goTo = (t: Tab) => router.replace(`/profile?tab=${t}`, { scroll: false });
 
   return (
     <>
-      <PageHeader title="Profile & resumes" description="What JobPilot compares job postings against. Only what you enter, nothing inferred." />
+      <PageHeader title="Profile & resumes" description="What JobPilot compares job postings against. Only what you enter, nothing inferred."
+                  actions={<Button variant="primary" icon={<FileUp className="size-4" />} onClick={() => setImporting(true)}>Import from CV</Button>} />
+      {importing && <CvImportDialog onClose={() => { setImporting(false); if (params.get("import")) goTo(tab); }} />}
       <Tabs className="mb-5" value={tab} onChange={goTo} tabs={TABS} />
       {tab === "overview" && <Overview goTo={goTo} />}
       {tab === "experience" && (
         <Collection title="Work experience" description="Roles, internships and co-ops" load={api.listExperiences} remove={api.deleteExperience}
                     emptyTitle="No experience yet" emptyText="Add your roles. They count toward years of experience and can serve as skill evidence."
-                    renderItem={(e: any) => (<>
+                    renderItem={(e: Experience) => (<>
                       <p className="text-[13px] font-medium text-stone-900">{e.title} <span className="font-normal text-stone-500">· {e.company}</span></p>
-                      <p className="text-xs text-stone-500">{range(e.start_date, e.end_date)}</p>
+                      <p className="text-xs text-stone-500">{monthRange(e.start_date, e.end_date)}</p>
                       {e.description && <p className="mt-1.5 text-[13px] text-stone-600">{e.description}</p>}
                       {e.achievements && <p className="mt-1 whitespace-pre-line text-xs text-stone-500">{e.achievements}</p>}
                     </>)}
@@ -516,16 +518,16 @@ function ProfileInner() {
       {tab === "education" && (
         <Collection title="Education" description="Degrees, diplomas and programs" load={api.listEducation} remove={api.deleteEducation}
                     emptyTitle="No education yet" emptyText="Used when a posting mentions a degree requirement."
-                    renderItem={(e: any) => (<>
+                    renderItem={(e: Education) => (<>
                       <p className="text-[13px] font-medium text-stone-900">{e.degree}{e.field && ` in ${e.field}`}</p>
-                      <p className="text-xs text-stone-500">{e.institution} · {range(e.start_date, e.end_date)}{e.gpa ? ` · GPA ${e.gpa}` : ""}</p>
+                      <p className="text-xs text-stone-500">{[e.institution, yearRange(e.start_date, e.end_date), e.gpa && `GPA ${e.gpa}`].filter(Boolean).join(" · ")}</p>
                     </>)}
                     renderForm={(item, close, saved) => <EducationForm item={item} onClose={close} onSaved={saved} />} />
       )}
       {tab === "projects" && (
         <Collection title="Projects" description="Personal, school or open-source work" load={api.listProjects} remove={api.deleteProject}
                     emptyTitle="No projects yet" emptyText="Projects are great evidence for skills you haven't used at work yet."
-                    renderItem={(p: any) => (<>
+                    renderItem={(p: Project) => (<>
                       <p className="text-[13px] font-medium text-stone-900">{p.name}</p>
                       {p.description && <p className="mt-0.5 text-[13px] text-stone-600">{p.description}</p>}
                       <div className="mt-1 flex gap-3 text-xs">

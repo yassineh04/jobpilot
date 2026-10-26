@@ -80,3 +80,22 @@ export function initials(name: string) {
 export function cn(...classes: (string | false | null | undefined)[]) {
   return twMerge(classes.filter(Boolean).join(" "));
 }
+
+/** "May 2024 – Aug 2024", "Sep 2023 – Present". A missing end date means the role is current. */
+export function monthRange(start?: string | null, end?: string | null) {
+  const month = (v: string) => formatDate(v, { day: undefined });
+  return `${start ? month(start) : "—"} – ${end ? month(end) : "Present"}`;
+}
+
+/** "2022 – 2026". Schools usually give years only, so months would be invented. */
+export function yearRange(start?: string | null, end?: string | null) {
+  const year = (v: string) => v.slice(0, 4);
+  if (!start && !end) return "";
+  return start && end ? `${year(start)} – ${year(end)}` : start ? `Since ${year(start)}` : `Until ${year(end!)}`;
+}
+
+export function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}

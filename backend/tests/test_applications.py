@@ -1,3 +1,6 @@
+from tests.helpers import auth_headers, create_application
+
+
 def _auth_headers(client):
     client.post("/auth/register", json={"email": "u@u.com", "password": "password123"})
     login_resp = client.post("/auth/login", data={"username": "u@u.com", "password": "password123"})
@@ -18,7 +21,7 @@ def test_create_and_list_application(client):
     list_resp = client.get("/applications/", headers=headers)
     assert list_resp.status_code == 200
     assert len(list_resp.json()) == 1
-    
+
 def test_search_filter(client):
     headers = _auth_headers(client)
     client.post("/applications/", json={
@@ -58,3 +61,15 @@ def test_stats_with_saved_application(client):
     body = resp.json()
     assert body["total"] == 2
     assert sum(body["applications_per_month"].values()) == 2
+
+
+def test_undoing_a_status_change_restores_the_applied_date(client):
+    h = auth_headers(client)
+    app = create_application(client, h)
+    moved = client.patch(f"/applications/{app['id']}", headers=h, json={"status": "APPLIED"}).json()
+    assert moved["applied_date"]
+    undone = client.patch(f"/applications/{app['id']}", headers=h,
+                          json={"status": "SAVED", "applied_date": None}).json()
+    assert undone["status"] == "SAVED" and undone["applied_date"] is None
+    events = client.get(f"/applications/{app['id']}/events", headers=h).json()
+    assert [e["to_status"] for e in events if e["event_type"] == "STATUS_CHANGED"] == ["APPLIED", "SAVED"]

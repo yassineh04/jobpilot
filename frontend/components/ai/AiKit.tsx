@@ -1,11 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { KeyRound, Loader2, ShieldCheck, Wand2 } from "lucide-react";
+import { KeyRound, Loader2, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/format";
 import type { AiStatus } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
+import { AgentMark } from "@/components/agent/AgentMark";
 
 let statusPromise: Promise<AiStatus> | null = null;
 
@@ -42,7 +43,7 @@ export function AiButton({ running, onClick, children, variant = "primary", size
   const seconds = useElapsed(running);
   return (
     <Button variant={variant} size={size} onClick={onClick} disabled={disabled || running} className={className}
-            icon={running ? <Loader2 className="size-3.5 animate-spin" /> : <Wand2 className="size-3.5" />}>
+            icon={running ? <Loader2 className="size-3.5 animate-spin" /> : <AgentMark className="size-3.5" />}>
       {running ? `Working… ${seconds}s` : children}
     </Button>
   );

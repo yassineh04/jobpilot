@@ -180,6 +180,7 @@ DRAFT_KINDS = {
     "thank_you": "a short thank-you email sent after an interview",
     "follow_up": "a polite follow-up email asking for an update on the application",
     "networking": "a concise LinkedIn/email message to a contact at this company asking for a short chat",
+    "cover_letter": "a cover letter for this application",
 }
 
 
@@ -203,6 +204,8 @@ def draft_message(db: Session, user: models.User, app: models.Application, kind:
                      + (f". Notes: {last.notes[:400]}" if last.notes else ""))
     if extra:
         facts.append(f"Points the candidate wants to include: {extra[:500]}")
+    if kind == "cover_letter":
+        return _cover_letter(db, user, app, llm, facts)
     raw = llm.complete_json(
         "You ghost-write messages FOR a job candidate. The candidate is the sender; the recipient is "
         "the recruiter, interviewer or contact at the company. Write in the first person (\"I\"), "
@@ -212,6 +215,25 @@ def draft_message(db: Session, user: models.User, app: models.Application, kind:
         f'JSON shape: {{"subject": "email subject (empty for LinkedIn)", "body": "the message"}}\n\n'
         f"Write {DRAFT_KINDS[kind]}.\nFacts:\n" + "\n".join(f"- {f}" for f in facts),
         Draft, max_tokens=700)
+    return raw.model_dump()
+
+
+def _cover_letter(db: Session, user: models.User, app: models.Application, llm, facts: list[str]) -> dict:
+    """Three short paragraphs: why this role, two or three matching experiences, a closing line.
+    Achievements come only from the numbered profile evidence; the posting is quoted, never extended."""
+    evidence = profile_evidence(db, user)
+    posting = _posting(app)[:3000] or "(no job description saved)"
+    raw = llm.complete_json(
+        "You ghost-write a cover letter FOR a job candidate, in the first person, in the language of the "
+        "job posting. Three short paragraphs, under 230 words in total. Mention only achievements listed in "
+        "the candidate's evidence below, in your own words, and never add numbers or employers that are not "
+        "there. Connect them to what the posting asks for. Where something is unknown, write a placeholder in "
+        "square brackets. No clichés like \"I am writing to express my interest\". Sign with the candidate's "
+        "name. Reply with JSON only.",
+        'JSON shape: {"subject": "Application: <role>", "body": "the letter"}\n\nFacts:\n'
+        + "\n".join(f"- {f}" for f in facts)
+        + f"\n\nCandidate evidence:\n{_evidence_block(evidence)}\n\n<posting>\n{posting}\n</posting>",
+        Draft, max_tokens=1200)
     return raw.model_dump()
 
 

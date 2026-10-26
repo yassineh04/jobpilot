@@ -13,6 +13,7 @@ const KINDS = [
   { value: "thank_you", label: "Thank-you after an interview" },
   { value: "follow_up", label: "Follow-up on my application" },
   { value: "networking", label: "Networking message to a contact" },
+  { value: "cover_letter", label: "Cover letter" },
 ] as const;
 type Kind = (typeof KINDS)[number]["value"];
 
@@ -57,14 +58,20 @@ export function DraftDialog({ app, onClose }: { app: Application; onClose: () =>
       {status && !status.enabled ? <AiNotConfigured /> : draft ? (
         <div className="space-y-3">
           {draft.subject && <Input label="Subject" value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} />}
-          <Textarea label="Message" rows={10} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })}
+          <Textarea label="Message" rows={kind === "cover_letter" ? 16 : 10} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })}
                     hint="Written from your application details. Fill in anything in [brackets] before sending." />
         </div>
       ) : (
         <div className="space-y-3.5">
           <Select label="Type of message" value={kind} onChange={(e) => setKind(e.target.value as Kind)} options={[...KINDS]} />
-          <Select label="To" value={contactId} onChange={(e) => setContactId(e.target.value)} placeholder="The recruiter (name unknown)"
-                  options={(contacts ?? []).map((c) => ({ value: c.id, label: c.role ? `${c.name} · ${c.role}` : c.name }))} />
+          {kind === "cover_letter" ? (
+            <p className="rounded-md bg-stone-50 px-3 py-2 text-xs text-stone-600">
+              Written from the job description and the achievements in your profile. Nothing else is added.
+            </p>
+          ) : (
+            <Select label="To" value={contactId} onChange={(e) => setContactId(e.target.value)} placeholder="The recruiter (name unknown)"
+                    options={(contacts ?? []).map((c) => ({ value: c.id, label: c.role ? `${c.name} · ${c.role}` : c.name }))} />
+          )}
           <Textarea label="Anything to mention" optional rows={2} value={notes} maxLength={500}
                     onChange={(e) => setNotes(e.target.value)} placeholder="e.g. enjoyed the discussion about their data pipeline" />
           <AiWaiting running={running} local={status?.local} what="Writing your draft" />
